@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Audit EP">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>Audit EP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="lib/leaflet.css">
+<link rel="stylesheet" href="lib/MarkerCluster.css">
+<link rel="stylesheet" href="lib/MarkerCluster.Default.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- OFFLINE BANNER -->
+<div class="offline-banner" id="offline-banner">
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="display:inline;vertical-align:middle;margin-right:4px"><path d="M1 1l10 10M3.5 2.5A6 6 0 0110.5 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg>
+  Mode hors-ligne — données sauvegardées localement
+</div>
+
+<!-- BARRE D'ÉTAT (online/offline + sync en attente) + boutons annuler/sync manuel -->
+<div class="topbar-actions">
+  <button class="sync-btn undo-btn" id="undo-btn" onclick="undoLast()" title="Annuler la dernière action" type="button" disabled="">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 14L4 9l5-5"></path>
+      <path d="M4 9h10.5a5.5 5.5 0 015.5 5.5v0a5.5 5.5 0 01-5.5 5.5H11"></path>
+    </svg>
+    <span class="undo-count" id="undo-count">0</span>
+  </button>
+  <button class="sync-btn undo-btn" id="redo-btn" onclick="redoLast()" title="Rétablir l’action annulée" type="button" disabled="">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 14l5-5-5-5"></path>
+      <path d="M20 9H9.5A5.5 5.5 0 004 14.5v0A5.5 5.5 0 009.5 20H13"></path>
+    </svg>
+    <span class="undo-count" id="redo-count">0</span>
+  </button>
+  <button class="sync-btn" id="sync-btn" onclick="manualSync()" title="Synchroniser avec le Sheet" type="button">
+    <svg id="sync-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="23 4 23 10 17 10"></polyline>
+      <polyline points="1 20 1 14 7 14"></polyline>
+      <path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15"></path>
+    </svg>
+  </button>
+  <div class="status-pill" id="status-pill" onclick="openDiag()" title="État &amp; diagnostic">
+    <span class="dot"></span><span id="status-text">En ligne</span>
+  </div>
+</div>
+
+<!-- PANNEAU DIAGNOSTIC -->
+<div class="diag" id="diag" onclick="if(event.target===this)closeDiag()">
+  <div class="diag-card">
+    <h3>État de l'appareil</h3>
+    <div class="sub">Tout ce qui est compté ici est déjà à l'abri sur l'iPad.</div>
+    <div class="diag-line"><span class="k">Réseau</span><span class="v" id="d-net">—</span></div>
+    <div class="diag-line"><span class="k">Points du PEEEPS (local)</span><span class="v" id="d-points">—</span></div>
+    <div class="diag-line"><span class="k">Photos du PEEEPS (local)</span><span class="v" id="d-photos">—</span></div>
+    <div class="diag-line"><span class="k">Synchronisation Drive</span><span class="v" id="d-sync">—</span></div>
+    <div class="diag-line"><span class="k">En attente de sync (tous PEEEPS)</span><span class="v" id="d-queue">—</span></div>
+    <div class="diag-line"><span class="k">Dernière erreur photo</span><span class="v" id="d-photoerr" style="max-width:62%;text-align:right;word-break:break-word;white-space:normal">—</span></div>
+    <div class="diag-line"><span class="k">Tuiles carte en cache</span><span class="v" id="d-tiles">—</span></div>
+    <div class="diag-line"><span class="k">Stockage utilisé</span><span class="v" id="d-storage">—</span></div>
+    <div class="diag-line"><span class="k">Stockage persistant</span><span class="v" id="d-persist">—</span></div>
+    <div class="diag-actions">
+      <button class="diag-export" onclick="exportAll()">Export CSV</button>
+      <button class="diag-export" onclick="exportPhotos()" style="background:var(--green);color:#06281a">Photos (ZIP)</button>
+      <button class="diag-close" onclick="clearTileCache()" style="background:#3a2a12;color:#fbbf24">Vider les cartes</button>
+      <button class="diag-close" onclick="closeDiag()">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<!-- PROGRESSION PRÉ-CACHE TUILES -->
+<div class="cache-progress" id="cache-progress">
+  <div class="lbl" id="cache-lbl">Préchargement de la carte…</div>
+  <div class="bar"><i id="cache-bar"></i></div>
+  <div class="pct" id="cache-pct">0 %</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ÉCRAN LOGIN
+══════════════════════════════════════════ -->
+<div class="screen active" id="screen-login">
+  <div class="login-logo">
+    <div class="logo-icon">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <circle cx="14" cy="14" r="5" fill="#e2e8f0"></circle>
+        <circle cx="14" cy="14" r="10" stroke="#e2e8f0" stroke-width="1.5" opacity="0.4"></circle>
+        <circle cx="14" cy="14" r="13" stroke="#e2e8f0" stroke-width="1" opacity="0.2"></circle>
+      </svg>
+    </div>
+    <h1>Audit EP</h1>
+    <p>Éclairage Public · Terrain connecté</p>
+  </div>
+  <div class="login-card">
+    <div class="field-group">
+      <label class="field-label">Prénom</label>
+      <input class="field-input" id="login-prenom" type="text" placeholder="ex: Martin" autocomplete="given-name">
+    </div>
+    <div class="field-group">
+      <label class="field-label">Nom</label>
+      <input class="field-input" id="login-nom" type="text" placeholder="ex: Dupont" autocomplete="family-name">
+    </div>
+    <div class="field-group">
+      <label class="field-label">PEEEPS</label>
+      <button type="button" class="mfp-btn" onclick="deleteChantierFromLogin()" style="width:100%;margin-top:8px;border-color:#f8717155;color:#f87171">🗑 Supprimer le PEEEPS sélectionné</button>
+      <select class="field-select" id="login-chantier" onchange="if(this.value===&#39;__new&#39;){addChantierFromLogin(this)}"><option value="">-- Sélectionner --</option></select>
+    </div>
+    <button class="btn-primary" onclick="doLogin()">Commencer l'audit</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ÉCRAN CARTE
+══════════════════════════════════════════ -->
+<div class="screen" id="screen-map">
+  <div class="calib-mapbanner" id="calib-mapbanner">Tapez le MÊME endroit sur la carte (repère <span id="calib-mapnum">1</span>/2)</div>
+  <div id="dl-banner"><span id="dl-txt">Téléchargement…</span><button class="mfp-btn" onclick="cancelTileDownload()">Annuler</button></div>
+  <div id="overlay-bar">
+    <span style="font-size:12px;color:#94a3b8">Plan client</span>
+    <input type="range" min="10" max="90" value="55" oninput="setOverlayOpacity(this.value)">
+    <button class="ob-btn" id="ob-eye" onclick="toggleOverlayVisible()">👁</button>
+    <button class="ob-btn" style="color:#f87171;border-color:#f87171" onclick="removeOverlay(true)">🗑</button>
+  </div>
+  <div class="topbar">
+    <div class="icon-btn" onclick="backToLogin()" title="Changer de PEEEPS / se déconnecter" style="margin-right:8px">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3H4v12h7"></path><path d="M8 9h8M13 6l3 3-3 3"></path></svg>
+    </div>
+    <div class="peeeps-switch">
+      <div class="topbar-title" id="map-chantier-label">PEEEPS</div>
+      <div class="topbar-sub" id="map-technicien-label">Technicien</div>
+      <select id="map-peeeps-switch" aria-label="Changer de PEEEPS" title="Changer de PEEEPS" onchange="switchPeeeps(this.value)"></select>
+    </div>
+    <div class="topbar-badge" id="map-count-badge">0 pts</div>
+    <div class="icon-btn" onclick="centerOnMe()">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round">
+        <circle cx="9" cy="9" r="3"></circle><path d="M9 1v3M9 14v3M1 9h3M14 9h3"></path>
+      </svg>
+    </div>
+  </div>
+  <div id="map"></div>
+  <button class="map-filter" id="map-filter-btn" onclick="toggleFilterPanel()">Toutes les armoires</button>
+  <div id="map-progress"></div>
+  <button class="map-filter" id="map-champ-btn" onclick="toggleChampPanel()" style="top:calc(env(safe-area-inset-top) + 108px)">Filtre caractéristique</button>
+  <div id="map-champ-panel">
+    <div class="mfp-head">
+      <button class="mfp-btn" onclick="clearChampFilter()">Effacer</button>
+      <button class="mfp-btn" onclick="toggleChampPanel()">Fermer ✕</button>
+    </div>
+    <div style="padding:6px 2px">
+      <div class="form-label">Caractéristique</div>
+      <select class="set-input" id="champ-field" onchange="renderChampValues()" style="margin-bottom:8px"></select>
+      <div class="form-label">Valeurs <span id="champ-count" style="opacity:.6"></span></div>
+      <button class="mfp-btn" id="champ-all-btn" style="width:100%;margin-bottom:6px" onclick="toggleAllChampValues()">Tout sélectionner</button>
+      <div class="mfp-list" id="champ-values" style="max-height:34vh;margin-bottom:8px"></div>
+      <button class="set-btn" style="width:100%" onclick="applyChampFilter()">Appliquer le filtre</button>
+    </div>
+  </div>
+  <div id="map-filter-panel">
+    <div class="mfp-head">
+      <button class="mfp-btn" id="mfp-all-btn" onclick="toggleAllArmoiresFilter()">Tout sélectionner</button>
+      <button class="mfp-btn" onclick="toggleFilterPanel()">Fermer ✕</button>
+    </div>
+    <input type="text" id="mfp-search" placeholder="🔍 Rechercher une armoire…" oninput="renderFilterPanel()" style="width:100%;box-sizing:border-box;padding:8px 10px;margin:6px 0;border:1px solid var(--border2);border-radius:8px;background:var(--bg1,#0f172a);color:var(--text);font-size:13px">
+    <div class="mfp-list" id="mfp-list"></div>
+  </div>
+  <div class="map-controls">
+    <div class="map-ctrl-btn" onclick="map.zoomIn()">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"><path d="M9 4v10M4 9h10"></path></svg>
+    </div>
+    <div class="map-ctrl-btn" onclick="map.zoomOut()">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"><path d="M4 9h10"></path></svg>
+    </div>
+    <div class="map-ctrl-btn" id="track-btn" onclick="toggleLocationTracking()" title="Afficher / suivre ma position en direct">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.6"><circle cx="9" cy="9" r="3.2"></circle><circle cx="9" cy="9" r="7" stroke-dasharray="2 2"></circle><circle cx="9" cy="9" r="1" fill="#94a3b8" stroke="none"></circle></svg>
+    </div>
+    <div class="map-ctrl-btn" onclick="centerOnMe()" title="Me localiser">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.5"><circle cx="9" cy="9" r="3"></circle><path d="M9 1v2M9 15v2M1 9h2M15 9h2" stroke-linecap="round"></path></svg>
+    </div>
+    <div class="map-ctrl-btn" id="pose-btn" onclick="togglePose()" title="Mode pose : taper la carte pour poser un point">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 1.5a4.5 4.5 0 00-4.5 4.5c0 3.2 4.5 9.5 4.5 9.5s4.5-6.3 4.5-9.5A4.5 4.5 0 009 1.5z"></path><circle cx="9" cy="6" r="1.6"></circle></svg>
+    </div>
+    <div class="map-ctrl-btn" id="lasso-btn" onclick="toggleLasso()" title="Lasso : entourer des points pour les sélectionner">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="9" cy="6.5" rx="6.5" ry="4.5" stroke-dasharray="3 2.5"></ellipse><path d="M6 10.5c0 2 .8 4 .8 4"></path></svg>
+    </div>
+    <div class="map-ctrl-btn" id="pose-armoire-btn" onclick="toggleArmoirePose()" title="Poser une armoire sur la carte">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-linejoin="round"><rect x="2.5" y="2.5" width="13" height="13" rx="2.5"></rect><path d="M10 4.5L6 9.5h2.3l-1.3 4 5-6H9.3l1.4-3z" fill="#94a3b8" stroke="none"></path></svg>
+    </div>
+    <div class="map-ctrl-btn" id="dl-btn" onclick="startTileDownload()" title="Télécharger la zone visible pour le hors-ligne">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2.5v8M5.5 7L9 10.5 12.5 7"></path><path d="M3 13.5h12M3 15.5h12" opacity=".5"></path></svg>
+    </div>
+    <div class="map-ctrl-btn" id="calib-btn" onclick="startCalibration()" title="Caler un plan / une capture du client sur la carte">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-linejoin="round"><rect x="2.5" y="4" width="13" height="10" rx="1.5"></rect><circle cx="6.5" cy="8" r="1.4" fill="#94a3b8" stroke="none"></circle><path d="M4 12.5l3.5-3 3 2.5 3-3.5"></path></svg>
+    </div>
+    <div class="map-ctrl-btn" id="sat-btn" onclick="toggleSatellite()" title="Fond de carte : Plan → Satellite IGN → Satellite Esri">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="6" height="6" rx="1"></rect><rect x="10" y="2" width="6" height="6" rx="1"></rect><rect x="2" y="10" width="6" height="6" rx="1"></rect><rect x="10" y="10" width="6" height="6" rx="1"></rect></svg>
+    </div>
+  </div>
+  <div class="map-fab" onclick="showForm(null)">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="2.5" stroke-linecap="round"><path d="M12 4v16M4 12h16"></path></svg>
+  </div>
+  <div class="map-precache" onclick="precacheVisibleArea()" title="Précharger la carte de la zone affichée (en réseau, avant le terrain)">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#e2e8f0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12V2M5 8l4 4 4-4M2 12v3a1 1 0 001 1h12a1 1 0 001-1v-3"></path></svg>
+  </div>
+  <div class="lasso-hint" id="lasso-hint">Lasso actif — entourez les points au doigt</div>
+  <div class="movegroup-hint" id="movegroup-hint">Glissez sur la carte pour déplacer <span id="movegroup-hint-count">0</span> point(s)<span class="movegroup-cancel" onclick="cancelMoveGroup()">Annuler</span></div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ÉCRAN LISTE
+══════════════════════════════════════════ -->
+<div class="screen" id="screen-list">
+  <div class="topbar">
+    <div style="flex:1">
+      <div class="topbar-title">Points lumineux</div>
+      <div class="topbar-sub" id="list-sub">0 points</div>
+    </div>
+    <div class="icon-btn" onclick="showForm(null)">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"><path d="M9 3v12M3 9h12"></path></svg>
+    </div>
+  </div>
+  <div class="search-bar">
+    <div class="search-input-wrap">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+      <input class="search-input" id="list-search" type="text" inputmode="search" placeholder="Rechercher un point (ID, type, techno…)" oninput="window._listLimit = 300; renderList()">
+      <button class="search-clear" type="button" onclick="document.getElementById(&#39;list-search&#39;).value=&#39;&#39;;window._listLimit=300;renderList();">✕</button>
+    </div>
+  </div>
+  <div class="list-scroll" id="list-scroll"></div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ÉCRAN FORMULAIRE
+══════════════════════════════════════════ -->
+<div class="screen" id="screen-form">
+  <div class="topbar">
+    <button class="btn-back" onclick="goBack()">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10 3L5 8l5 5"></path></svg>
+      Retour
+    </button>
+    <button class="btn-save-top" onclick="savePoint()">Enregistrer</button>
+    <div style="flex:1;text-align:center">
+      <div class="topbar-title" id="form-title">Nouveau point</div>
+      <div class="topbar-sub" id="form-id-label" onclick="renamePoint()" style="cursor:pointer" title="Toucher pour renommer">✎ <span id="form-id-text"></span></div>
+    </div>
+  </div>
+  <div class="form-scroll">
+
+    <div class="tpl-bar" id="tpl-bar"></div>
+
+    <div class="form-section-title">Localisation GPS</div>
+    <div class="form-row">
+      <div class="gps-row">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="1.5"><circle cx="8" cy="7" r="2.5"></circle><path d="M8 1a6 6 0 010 12C5 13 2 10 2 7a6 6 0 016-6z"></path></svg>
+        <div class="gps-coords empty" id="gps-display">Appuyer pour capturer</div>
+        <button class="gps-btn" onclick="captureGPS()">📍 GPS</button>
+      </div>
+      <div class="precision-row">
+        <select class="form-select" id="f-classe-precision" title="Classe de précision DT-DICT">
+          <option value="C">Classe C (smartphone/iPad)</option>
+          <option value="B">Classe B (≤ 1,5 m)</option>
+          <option value="A">Classe A (RTK, ≤ 40 cm)</option>
+        </select>
+        <span class="acc-tag" id="gps-acc">±  — m</span>
+      </div>
+    </div>
+
+    <div class="form-section-title">Armoire de rattachement</div>
+    <div class="form-row">
+      <div class="form-label">ID Armoire</div>
+      <select class="form-select" id="f-id-armoire"></select>
+    </div>
+
+    <div class="form-section-title">Support</div>
+    <div class="form-row">
+      <div class="form-label">Nombre de supports</div>
+      <input class="form-input" type="number" id="f-nbr-supports" placeholder="1" min="1" max="10">
+    </div>
+    <div class="form-row">
+      <div class="form-label">Type de support <span class="req">●</span></div>
+      <select class="form-select" id="f-type-support">
+        <option value="">-- Sélectionner --</option>
+        <option>Mât droit</option>
+        <option>Console</option>
+        <option>Potence</option>
+        <option>Candélabre</option>
+        <option>Encastré sol</option>
+        <option>Façade</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-label">État du support <span class="req">●</span></div>
+      <select class="form-select" id="f-etat-support">
+        <option value="">-- Sélectionner --</option>
+        <option>Bon</option>
+        <option>Moyen</option>
+        <option>Mauvais</option>
+        <option>À remplacer</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-label">Hauteur (m)</div>
+      <input class="form-input" type="number" id="f-hauteur" placeholder="6" min="1" max="20">
+    </div>
+    <div class="form-row">
+      <div class="form-label">Type d'attache</div>
+      <select class="form-select" id="f-type-attache">
+        <option value="">-- Sélectionner --</option>
+        <option>Bride</option>
+        <option>Crosse</option>
+        <option>Platine</option>
+        <option>Direct</option>
+      </select>
+    </div>
+
+    <div class="form-section-title">Luminaire</div>
+    <div class="form-row">
+      <div class="form-label">Nombre de luminaires</div>
+      <input class="form-input" type="number" id="f-nbr-luminaires" placeholder="1" min="1" max="4">
+    </div>
+    <div class="form-row">
+      <div class="form-label">Type de luminaire</div>
+      <select class="form-select" id="f-type-luminaire">
+        <option value="">-- Sélectionner --</option>
+        <option>Lanterne</option>
+        <option>Projecteur</option>
+        <option>Hublot</option>
+        <option>Borne</option>
+        <option>Applique</option>
+        <option>Globe</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-label">État luminaire</div>
+      <select class="form-select" id="f-etat-luminaire">
+        <option value="">-- Sélectionner --</option>
+        <option>Bon</option>
+        <option>Moyen</option>
+        <option>Mauvais</option>
+        <option>À remplacer</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-label">Technologie</div>
+      <select class="form-select" id="f-technologie">
+        <option value="">-- Sélectionner --</option>
+        <option>LED</option>
+        <option>Sodium HP</option>
+        <option>Sodium BP</option>
+        <option>Iodures métalliques</option>
+        <option>Fluo compact</option>
+        <option>Inconnue</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-label">Puissance (W)</div>
+      <input class="form-input" type="number" id="f-puissance" placeholder="40" min="1" max="1000">
+    </div>
+
+    <div class="form-section-title">Photos</div>
+    <div class="photo-grid">
+      <div class="photo-slot" id="photo-luminaire" onclick="takePhoto(&#39;luminaire&#39;)">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#64748b" stroke-width="1.5"><rect x="2" y="6" width="18" height="13" rx="3"></rect><circle cx="11" cy="13" r="3"></circle><path d="M8 6l1.5-3h3L14 6"></path></svg>
+        <div class="photo-label">Luminaire</div>
+      </div>
+      <div class="photo-slot" id="photo-mat" onclick="takePhoto(&#39;mat&#39;)">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#64748b" stroke-width="1.5"><rect x="2" y="6" width="18" height="13" rx="3"></rect><circle cx="11" cy="13" r="3"></circle><path d="M8 6l1.5-3h3L14 6"></path></svg>
+        <div class="photo-label">Mât</div>
+      </div>
+      <div class="photo-slot" id="photo-classe2" onclick="takePhoto(&#39;classe2&#39;)">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#64748b" stroke-width="1.5"><rect x="2" y="6" width="18" height="13" rx="3"></rect><circle cx="11" cy="13" r="3"></circle><path d="M8 6l1.5-3h3L14 6"></path></svg>
+        <div class="photo-label">Classe 2</div>
+      </div>
+    </div>
+
+    <div class="form-section-title">Panier &amp; Observations</div>
+    <div class="form-row">
+      <div class="toggle-row">
+        <span class="toggle-label">Dans le panier</span>
+        <div class="toggle" id="toggle-panier" onclick="togglePanier()"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="toggle-row">
+        <span class="toggle-label">✅ Vérifié sur le terrain</span>
+        <div class="toggle" id="toggle-verifie" onclick="this.classList.toggle(&#39;on&#39;)"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="toggle-row">
+        <span class="toggle-label">Point à déposer</span>
+        <div class="toggle" id="toggle-depose" onclick="this.classList.toggle(&#39;on&#39;)"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-label">Observations</div>
+      <textarea class="form-input" id="f-observations" rows="3" placeholder="Notes libres..."></textarea>
+    </div>
+    <div id="custom-fields-pl"></div>
+
+  </div>
+  <div class="form-actions">
+    <button class="btn-dup" onclick="dupliquerPoint()">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="5" y="4" width="8" height="9" rx="2"></rect><path d="M3 12V3a2 2 0 012-2h6"></path></svg>
+      Dupliquer + GPS
+    </button>
+    <button class="btn-save" onclick="savePoint()">Enregistrer</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ÉCRAN PANIER
+══════════════════════════════════════════ -->
+<div class="screen" id="screen-panier">
+  <div class="topbar">
+    <div style="flex:1">
+      <div class="topbar-title">Panier</div>
+      <div class="topbar-sub" id="panier-sub">0 points sélectionnés</div>
+    </div>
+  </div>
+  <div class="panier-scroll" id="panier-scroll"></div>
+  <div class="panier-actions">
+    <button class="btn-masse" onclick="openModalMasseChoice()">Modifier en masse</button>
+    <button class="btn-vider" onclick="viderPanier()">Vider</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ÉCRAN RÉGLAGES
+══════════════════════════════════════════ -->
+<div class="screen" id="screen-settings">
+  <div class="settings-head">
+    <div class="settings-title">Réglages</div>
+    <div class="settings-sub">Personnalise tes listes et tes champs. Les modifications s'appliquent tout de suite. · <b>v94</b></div>
+  </div>
+  <div class="settings-body" id="settings-body"></div>
+</div>
+
+<!-- Écran de calage d'un plan client (2 repères) -->
+<div id="calib-screen">
+  <div class="calib-head">
+    <div>
+      <div class="calib-title">Calage du plan — repère <span id="calib-imgnum">1</span>/2</div>
+      <div class="calib-hint">Tapez un endroit reconnaissable sur l'image (carrefour, angle de bâtiment…)</div>
+    </div>
+    <button class="btn-cancel" style="padding:8px 14px" onclick="cancelCalibration()">Annuler</button>
+  </div>
+  <div class="calib-imgwrap" id="calib-imgwrap">
+    <img id="calib-img" alt="">
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     BOTTOM NAV
+══════════════════════════════════════════ -->
+<div class="bottom-nav" id="bottom-nav" style="display:none">
+  <div class="nav-item active" id="nav-map" onclick="showScreen(&#39;map&#39;)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"><path d="M3 5l6-2 6 2 6-2v14l-6 2-6-2-6 2V5z"></path><path d="M9 3v14M15 5v14"></path></svg>
+    <span class="nav-label">Carte</span>
+  </div>
+  <div class="nav-item" id="nav-list" onclick="showScreen(&#39;list&#39;)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg>
+    <span class="nav-label">Liste</span>
+  </div>
+  <div class="nav-item" id="nav-armoires" onclick="showScreen(&#39;armoires&#39;)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M9 21V9"></path><path d="M12 14h.01M12 17h.01"></path></svg>
+    <span class="nav-label">Armoires</span>
+  </div>
+  <div class="nav-item" id="nav-panier" onclick="showScreen(&#39;panier&#39;)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4zM3 6h18"></path><path d="M16 10a4 4 0 01-8 0"></path></svg>
+    <span class="nav-label">Panier</span>
+  </div>
+  <div class="nav-item" id="nav-settings" onclick="showScreen(&#39;settings&#39;)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path></svg>
+    <span class="nav-label">Réglages</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ÉCRAN ARMOIRES (liste)
+══════════════════════════════════════════ -->
+<div class="screen" id="screen-armoires">
+  <div class="topbar">
+    <div style="flex:1">
+      <div class="topbar-title">Armoires</div>
+      <div class="topbar-sub" id="armoires-sub">0 armoire(s)</div>
+    </div>
+    <button class="btn-save-top" onclick="showArmoireForm(null)" style="display:flex;align-items:center;gap:6px">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 1v12M1 7h12"></path></svg>
+      Ajouter
+    </button>
+  </div>
+  <div class="search-bar">
+    <div class="search-input-wrap">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+      <input class="search-input" id="arm-search" type="text" inputmode="search" placeholder="Rechercher une armoire (ID, câble…)" oninput="renderArmoires()">
+      <button class="search-clear" type="button" onclick="document.getElementById(&#39;arm-search&#39;).value=&#39;&#39;;renderArmoires();">✕</button>
+    </div>
+    <select class="search-filter-select" id="arm-filter-etat" onchange="renderArmoires()">
+      <option value="">Tous les états</option>
+      <option value="Bon">Bon</option>
+      <option value="Moyen">Moyen</option>
+      <option value="Mauvais">Mauvais</option>
+      <option value="À remplacer">À remplacer</option>
+    </select>
+  </div>
+  <div class="list-scroll" id="armoires-scroll"></div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ÉCRAN FORMULAIRE ARMOIRE
+══════════════════════════════════════════ -->
+<div class="screen" id="screen-armoire-form">
+  <div class="topbar">
+    <button class="btn-back" onclick="goBack()">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10 3L5 8l5 5"></path></svg>
+      Retour
+    </button>
+    <button class="btn-save-top" onclick="saveArmoire()">Enregistrer</button>
+    <div style="flex:1;text-align:center">
+      <div class="topbar-title" id="armoire-form-title">Nouvelle armoire</div>
+      <div class="topbar-sub" id="armoire-form-id-label"></div>
+    </div>
+  </div>
+  <div class="form-scroll">
+
+    <div class="form-section-title">Localisation GPS</div>
+    <div class="form-row">
+      <div class="gps-row">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fb923c" stroke-width="1.5"><circle cx="8" cy="7" r="2.5"></circle><path d="M8 1a6 6 0 010 12C5 13 2 10 2 7a6 6 0 016-6z"></path></svg>
+        <div class="gps-coords empty" id="arm-gps-display">Appuyer pour capturer</div>
+        <button class="gps-btn" onclick="captureGPSArmoire()">📍 GPS</button>
+      </div>
+    </div>
+
+    <div class="form-section-title">Identification</div>
+    <div class="form-row">
+      <div class="form-label">ID Armoire <span class="req">●</span></div>
+      <input class="form-input" type="text" id="af-id" placeholder="ex: ARM-001" autocapitalize="characters">
+    </div>
+
+    <div class="form-section-title">État</div>
+    <div class="form-row">
+      <div class="form-label">État extérieur <span class="req">●</span></div>
+      <select class="form-select" id="af-etat-ext">
+        <option value="">-- Sélectionner --</option>
+        <option>Bon</option><option>Moyen</option><option>Mauvais</option><option>À remplacer</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-label">État intérieur <span class="req">●</span></div>
+      <select class="form-select" id="af-etat-int">
+        <option value="">-- Sélectionner --</option>
+        <option>Bon</option><option>Moyen</option><option>Mauvais</option><option>À remplacer</option>
+      </select>
+    </div>
+
+    <div class="form-section-title">Alimentation</div>
+    <div class="form-row">
+      <div class="form-label">Abonnement (kVA)</div>
+      <input class="form-input" type="number" id="af-abonnement" placeholder="ex: 36" min="0" step="0.01">
+    </div>
+    <div class="form-row">
+      <div class="form-label">Câble d'alimentation</div>
+      <select class="form-select" id="af-cable">
+        <option value="">-- Sélectionner --</option>
+        <option>Aérien</option><option>Souterrain</option><option>Mixte</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-label">Nombre de départs</div>
+      <input class="form-input" type="number" id="af-departs" placeholder="ex: 4" min="1" max="20">
+    </div>
+    <div class="form-row">
+      <div class="form-label">Type de protection</div>
+      <select class="form-select" id="af-protection">
+        <option value="">-- Sélectionner --</option>
+        <option>Disjoncteur</option><option>Fusible</option><option>Interrupteur différentiel</option><option>Autre</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-label">Horloge / Télégestion</div>
+      <select class="form-select" id="af-horloge">
+        <option value="">-- Sélectionner --</option>
+        <option>Horloge astronomique</option><option>Télégestion</option><option>Cellule photoélectrique</option><option>Manuel</option><option>Aucun</option>
+      </select>
+    </div>
+
+    <div class="form-section-title">Photos</div>
+    <div class="photo-grid">
+      <div class="photo-slot" id="photo-arm_ext" onclick="takeArmoirePhoto(&#39;arm_ext&#39;)">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#64748b" stroke-width="1.5"><rect x="2" y="6" width="18" height="13" rx="3"></rect><circle cx="11" cy="13" r="3"></circle><path d="M8 6l1.5-3h3L14 6"></path></svg>
+        <div class="photo-label">Extérieur</div>
+      </div>
+      <div class="photo-slot" id="photo-arm_int" onclick="takeArmoirePhoto(&#39;arm_int&#39;)">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#64748b" stroke-width="1.5"><rect x="2" y="6" width="18" height="13" rx="3"></rect><circle cx="11" cy="13" r="3"></circle><path d="M8 6l1.5-3h3L14 6"></path></svg>
+        <div class="photo-label">Intérieur</div>
+      </div>
+      <div class="photo-slot" id="photo-arm_compteur" onclick="takeArmoirePhoto(&#39;arm_compteur&#39;)">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#64748b" stroke-width="1.5"><rect x="2" y="6" width="18" height="13" rx="3"></rect><circle cx="11" cy="13" r="3"></circle><path d="M8 6l1.5-3h3L14 6"></path></svg>
+        <div class="photo-label">Compteur</div>
+      </div>
+    </div>
+
+    <div class="form-section-title">Observations</div>
+    <div class="form-row">
+      <textarea class="form-input" id="af-observations" rows="3" placeholder="Notes libres..."></textarea>
+    </div>
+    <div id="custom-fields-arm"></div>
+
+  </div>
+  <div class="form-actions">
+    <button class="btn-save" onclick="saveArmoire()">Enregistrer</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     MODAL CHOIX : 1 caractéristique vs toutes
+══════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-masse-choice" onclick="closeModalMasseChoice(event)">
+  <div class="modal">
+    <div class="modal-title">Modifier en masse</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:4px"><span id="masse-choice-count">0</span> point(s) sélectionné(s). Que voulez-vous modifier ?</div>
+    <div class="modal-actions">
+      <button class="btn-modal-action" onclick="closeModalMasseChoice();masseSetVerifie(true)" style="background:rgba(74,222,128,0.15);color:#4ade80;border-color:#4ade80">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.5 3.5L13 4.5"></path></svg>
+        ✅ Marquer « vérifié sur le terrain »
+      </button>
+      <button class="btn-modal-action" onclick="closeModalMasseChoice();masseSetVerifie(false)" style="background:rgba(148,163,184,0.12);color:#94a3b8;border-color:#94a3b8">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 8h8"></path></svg>
+        Retirer « vérifié »
+      </button>
+      <button class="btn-modal-action" onclick="closeModalMasseChoice();openModalMasse()" style="background:var(--accent-dim);color:var(--accent);border-color:var(--accent)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 8h10M8 3v10"></path></svg>
+        Une seule caractéristique
+      </button>
+      <button class="btn-modal-action" onclick="closeModalMasseChoice();openModalMasseTrames()" style="background:rgba(74,222,128,0.12);color:#4ade80;border-color:#4ade80">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="3" width="12" height="10" rx="2"></rect><path d="M2 7h12M6 3v4"></path></svg>
+        Trame prédéfinie (toutes les caractéristiques)
+      </button>
+      <button class="btn-modal-action" onclick="closeModalMasseChoice();openModalMasseAll()" style="background:var(--orange-dim);color:var(--orange);border-color:var(--orange)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2" width="5" height="5" rx="1"></rect><rect x="9" y="2" width="5" height="5" rx="1"></rect><rect x="2" y="9" width="5" height="5" rx="1"></rect><rect x="9" y="9" width="5" height="5" rx="1"></rect></svg>
+        Plusieurs caractéristiques (formulaire complet)
+      </button>
+      <button class="btn-modal-action" onclick="closeModalMasseChoice();startMoveGroup()" style="background:rgba(167,139,250,0.15);color:#a78bfa;border-color:#a78bfa">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v14M1 8h14M8 1l-2.5 2.5M8 1l2.5 2.5M8 15l-2.5-2.5M8 15l2.5-2.5M1 8l2.5-2.5M1 8l2.5 2.5M15 8l-2.5-2.5M15 8l-2.5 2.5"></path></svg>
+        Déplacer le groupe
+      </button>
+      <button class="btn-modal-action" onclick="closeModalMasseChoice();deselectLasso()" style="background:rgba(148,163,184,0.15);color:#94a3b8;border-color:#94a3b8">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6"></circle><path d="M5 8h6"></path></svg>
+        Retirer du lasso (désélectionner)
+      </button>
+      <button class="btn-modal-action" onclick="confirmDeleteLasso()" style="background:var(--red-dim);color:var(--red);border-color:var(--red)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="2,4 14,4"></polyline><path d="M5 4V3h6v1"></path><path d="M6 7v5M10 7v5"></path><rect x="3" y="4" width="10" height="9" rx="1"></rect></svg>
+        Supprimer la sélection
+      </button>
+    </div>
+    <button class="btn-cancel" onclick="closeModalMasseChoice()">Annuler</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     MODAL MODIFICATION EN MASSE
+══════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-masse" onclick="closeModalMasse(event)">
+  <div class="modal">
+    <div class="modal-title">Modifier en masse</div>
+    <div class="form-row">
+      <div class="form-label">Champ à modifier</div>
+      <select class="form-select" id="masse-field">
+        <option value="">-- Sélectionner --</option>
+        <option value="__trame">🗂 Trame prédéfinie (toutes les caractéristiques)</option>
+        <option value="f-type-support">Type de support</option>
+        <option value="f-type-attache">Type d'attache</option>
+        <option value="f-etat-support">État du support</option>
+        <option value="f-etat-luminaire">État luminaire</option>
+        <option value="f-technologie">Technologie</option>
+        <option value="f-type-luminaire">Type de luminaire</option>
+        <option value="f-classe-precision">Classe de précision</option>
+        <option value="f-id-armoire">ID Armoire</option>
+      </select>
+    </div>
+    <div class="tpl-bar" id="masse-tpl-bar" style="display:none"></div>
+    <div class="form-row" id="masse-value-row" style="display:none">
+      <div class="form-label">Nouvelle valeur</div>
+      <select class="form-select" id="masse-value"></select>
+    </div>
+    <div class="form-row" id="masse-text-row" style="display:none">
+      <div class="form-label">Nouvelle valeur</div>
+      <input class="form-input" id="masse-text" type="text" placeholder="ex: ARM-001" autocapitalize="characters">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-modal-action" onclick="applyMasse()" style="background:var(--orange-dim);color:var(--orange);border-color:var(--orange)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 8l4 4 8-8"></path></svg>
+        Appliquer aux <span id="masse-count">0</span> points du panier
+      </button>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn-cancel" style="flex:1" onclick="closeModalMasse();openModalMasseChoice()">‹ Retour</button>
+      <button class="btn-cancel" style="flex:1" onclick="closeModalMasse()">Annuler</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     MODAL MODIFICATION EN MASSE — TOUTES LES CARACTÉRISTIQUES
+══════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-masse-all" onclick="closeModalMasseAll(event)">
+  <div class="modal">
+    <div class="modal-title">Modifier plusieurs caractéristiques</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Laissez un champ vide pour ne pas le modifier. Seuls les champs remplis seront appliqués aux <span id="masse-all-count">0</span> points sélectionnés.</div>
+    <div style="max-height:50vh;overflow-y:auto;padding-right:2px">
+      <div class="form-row">
+        <div class="form-label">ID Armoire</div>
+        <input class="form-input" type="text" id="ma-id-armoire" placeholder="(ne pas modifier)" autocapitalize="characters">
+      </div>
+      <div class="form-row">
+        <div class="form-label">Nombre de supports</div>
+        <input class="form-input" type="number" id="ma-nbr-supports" placeholder="(ne pas modifier)" min="1" max="10">
+      </div>
+      <div class="form-row">
+        <div class="form-label">Type de support</div>
+        <select class="form-select" id="ma-type-support">
+          <option value="">-- Ne pas modifier --</option>
+          <option>Mât droit</option><option>Console</option><option>Potence</option>
+          <option>Candélabre</option><option>Encastré sol</option><option>Façade</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-label">État du support</div>
+        <select class="form-select" id="ma-etat-support">
+          <option value="">-- Ne pas modifier --</option>
+          <option>Bon</option><option>Moyen</option><option>Mauvais</option><option>À remplacer</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-label">Hauteur (m)</div>
+        <input class="form-input" type="number" id="ma-hauteur" placeholder="(ne pas modifier)" min="1" max="20">
+      </div>
+      <div class="form-row">
+        <div class="form-label">Type d'attache</div>
+        <select class="form-select" id="ma-type-attache">
+          <option value="">-- Ne pas modifier --</option>
+          <option>Bride</option><option>Crosse</option><option>Platine</option><option>Direct</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-label">Nombre de luminaires</div>
+        <input class="form-input" type="number" id="ma-nbr-luminaires" placeholder="(ne pas modifier)" min="1" max="4">
+      </div>
+      <div class="form-row">
+        <div class="form-label">Type de luminaire</div>
+        <select class="form-select" id="ma-type-luminaire">
+          <option value="">-- Ne pas modifier --</option>
+          <option>Lanterne</option><option>Projecteur</option><option>Hublot</option>
+          <option>Borne</option><option>Applique</option><option>Globe</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-label">État luminaire</div>
+        <select class="form-select" id="ma-etat-luminaire">
+          <option value="">-- Ne pas modifier --</option>
+          <option>Bon</option><option>Moyen</option><option>Mauvais</option><option>À remplacer</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-label">Technologie</div>
+        <select class="form-select" id="ma-technologie">
+          <option value="">-- Ne pas modifier --</option>
+          <option>LED</option><option>Sodium HP</option><option>Sodium BP</option>
+          <option>Iodures métalliques</option><option>Fluo compact</option><option>Inconnue</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-label">Puissance (W)</div>
+        <input class="form-input" type="number" id="ma-puissance" placeholder="(ne pas modifier)" min="1" max="1000">
+      </div>
+      <div class="form-row">
+        <div class="form-label">Classe de précision</div>
+        <select class="form-select" id="ma-classe-precision">
+          <option value="">-- Ne pas modifier --</option>
+          <option value="C">Classe C (smartphone/iPad)</option>
+          <option value="B">Classe B (≤ 1,5 m)</option>
+          <option value="A">Classe A (RTK, ≤ 40 cm)</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-label">Observations</div>
+        <textarea class="form-input" id="ma-observations" rows="2" placeholder="(ne pas modifier)"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-modal-action" onclick="applyMasseAll()" style="background:var(--orange-dim);color:var(--orange);border-color:var(--orange)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 8l4 4 8-8"></path></svg>
+        Appliquer aux <span id="masse-all-count2">0</span> points du panier
+      </button>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn-cancel" style="flex:1" onclick="closeModalMasseAll();openModalMasseChoice()">‹ Retour</button>
+      <button class="btn-cancel" style="flex:1" onclick="closeModalMasseAll()">Annuler</button>
+    </div>
+  </div>
+</div>
+
+<script src="lib/leaflet.js"></script>
+<script src="lib/leaflet.markercluster.js"></script>
+<script src="lib/proj4.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
