@@ -40,13 +40,6 @@
     </svg>
     <span class="undo-count" id="undo-count">0</span>
   </button>
-  <button class="sync-btn undo-btn" id="redo-btn" onclick="redoLast()" title="Rétablir l’action annulée" type="button" disabled="">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M15 14l5-5-5-5"></path>
-      <path d="M20 9H9.5A5.5 5.5 0 004 14.5v0A5.5 5.5 0 009.5 20H13"></path>
-    </svg>
-    <span class="undo-count" id="redo-count">0</span>
-  </button>
   <button class="sync-btn" id="sync-btn" onclick="manualSync()" title="Synchroniser avec le Sheet" type="button">
     <svg id="sync-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <polyline points="23 4 23 10 17 10"></polyline>
@@ -65,10 +58,9 @@
     <h3>État de l'appareil</h3>
     <div class="sub">Tout ce qui est compté ici est déjà à l'abri sur l'iPad.</div>
     <div class="diag-line"><span class="k">Réseau</span><span class="v" id="d-net">—</span></div>
-    <div class="diag-line"><span class="k">Points du PEEEPS (local)</span><span class="v" id="d-points">—</span></div>
-    <div class="diag-line"><span class="k">Photos du PEEEPS (local)</span><span class="v" id="d-photos">—</span></div>
-    <div class="diag-line"><span class="k">Synchronisation Drive</span><span class="v" id="d-sync">—</span></div>
-    <div class="diag-line"><span class="k">En attente de sync (tous PEEEPS)</span><span class="v" id="d-queue">—</span></div>
+    <div class="diag-line"><span class="k">Points enregistrés (local)</span><span class="v" id="d-points">—</span></div>
+    <div class="diag-line"><span class="k">Photos enregistrées (local)</span><span class="v" id="d-photos">—</span></div>
+    <div class="diag-line"><span class="k">En attente de sync</span><span class="v" id="d-queue">—</span></div>
     <div class="diag-line"><span class="k">Dernière erreur photo</span><span class="v" id="d-photoerr" style="max-width:62%;text-align:right;word-break:break-word;white-space:normal">—</span></div>
     <div class="diag-line"><span class="k">Tuiles carte en cache</span><span class="v" id="d-tiles">—</span></div>
     <div class="diag-line"><span class="k">Stockage utilisé</span><span class="v" id="d-storage">—</span></div>
@@ -114,8 +106,8 @@
       <input class="field-input" id="login-nom" type="text" placeholder="ex: Dupont" autocomplete="family-name">
     </div>
     <div class="field-group">
-      <label class="field-label">PEEEPS</label>
-      <button type="button" class="mfp-btn" onclick="deleteChantierFromLogin()" style="width:100%;margin-top:8px;border-color:#f8717155;color:#f87171">🗑 Supprimer le PEEEPS sélectionné</button>
+      <label class="field-label">Chantier</label>
+      <button type="button" class="mfp-btn" onclick="deleteChantierFromLogin()" style="width:100%;margin-top:8px;border-color:#f8717155;color:#f87171">🗑 Supprimer le chantier sélectionné</button>
       <select class="field-select" id="login-chantier" onchange="if(this.value===&#39;__new&#39;){addChantierFromLogin(this)}"><option value="">-- Sélectionner --</option></select>
     </div>
     <button class="btn-primary" onclick="doLogin()">Commencer l'audit</button>
@@ -135,13 +127,12 @@
     <button class="ob-btn" style="color:#f87171;border-color:#f87171" onclick="removeOverlay(true)">🗑</button>
   </div>
   <div class="topbar">
-    <div class="icon-btn" onclick="backToLogin()" title="Changer de PEEEPS / se déconnecter" style="margin-right:8px">
+    <div class="icon-btn" onclick="backToLogin()" title="Changer de chantier / se déconnecter" style="margin-right:8px">
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3H4v12h7"></path><path d="M8 9h8M13 6l3 3-3 3"></path></svg>
     </div>
-    <div class="peeeps-switch">
-      <div class="topbar-title" id="map-chantier-label">PEEEPS</div>
+    <div>
+      <div class="topbar-title" id="map-chantier-label">Chantier</div>
       <div class="topbar-sub" id="map-technicien-label">Technicien</div>
-      <select id="map-peeeps-switch" aria-label="Changer de PEEEPS" title="Changer de PEEEPS" onchange="switchPeeeps(this.value)"></select>
     </div>
     <div class="topbar-badge" id="map-count-badge">0 pts</div>
     <div class="icon-btn" onclick="centerOnMe()">
