@@ -2,11 +2,11 @@
    1) met l'application en cache pour qu'elle s'ouvre sans réseau ;
    2) sert les fonds de carte téléchargés (cache « audit-ep-tiles-v1 », rempli par l'appli : même nom que dans js/app.js).
    Pour forcer la mise à jour du cache de l'appli après une modification, change simplement VERSION. */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL_CACHE = 'audit-ep-shell-' + VERSION;
 const TILE_CACHE = 'audit-ep-tiles-v1';
 const SHELL_FILES = [
-  './', 'index.html', 'css/style.css', 'js/app.js', 'manifest.json',
+  './', 'index.html', 'css/style.css', 'js/app.js', 'js/auth.js', 'manifest.json',
   'lib/leaflet.js', 'lib/leaflet.css', 'lib/leaflet.markercluster.js',
   'lib/MarkerCluster.css', 'lib/MarkerCluster.Default.css', 'lib/proj4.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',

@@ -33,7 +33,6 @@ const DB = (() => {
     async del(store, key) { const s = await tx(store, 'readwrite'); return reqP(s.delete(key)); },
     async all(store) { const s = await tx(store, 'readonly'); return reqP(s.getAll()); },
     async count(store) { const s = await tx(store, 'readonly'); return reqP(s.count()); },
-    async keys(store) { const s = await tx(store, 'readonly'); return reqP(s.getAllKeys()); },
     async putAllPoints(points) {
       const db = await open();
       return new Promise((res, rej) => {
@@ -86,67 +85,32 @@ async function updateStatus() {
   const net = navigator.onLine ? 'En ligne' : 'Hors ligne';
   txt.innerHTML = _storageWarn ? '⚠ stockage'
     : (pending > 0 ? net + ' · <span class="pend">' + pending + ' à sync</span>' : net);
-  const dg = document.getElementById('diag');
-  if (dg && dg.classList.contains('show')) refreshDiag();
 }
-let _diagTimer = null, _diagBusy = false;
-function openDiag() {
-  refreshDiag();
-  document.getElementById('diag').classList.add('show');
-  if (_diagTimer) clearInterval(_diagTimer);
-  _diagTimer = setInterval(refreshDiag, 3000);   // les compteurs restent à jour tant que la fenêtre est ouverte
-}
-function closeDiag() {
-  document.getElementById('diag').classList.remove('show');
-  if (_diagTimer) { clearInterval(_diagTimer); _diagTimer = null; }
-}
+function openDiag() { refreshDiag(); document.getElementById('diag').classList.add('show'); }
+function closeDiag() { document.getElementById('diag').classList.remove('show'); }
 async function refreshDiag() {
-  if (_diagBusy) return;
-  _diagBusy = true;
+  const set = (id, v, cls) => { const el = document.getElementById(id); if (el) { el.textContent = v; el.className = 'v' + (cls ? ' ' + cls : ''); } };
+  set('d-net', navigator.onLine ? 'En ligne' : 'Hors ligne', navigator.onLine ? 'ok' : 'warn');
+  try { set('d-points', String(await DB.count('points'))); } catch (e) { set('d-points', '—'); }
+  try { set('d-photos', String(await DB.count('photos'))); } catch (e) { set('d-photos', '—'); }
   try {
-    const set = (id, v, cls) => { const el = document.getElementById(id); if (el) { el.textContent = v; el.className = 'v' + (cls ? ' ' + cls : ''); } };
-    set('d-net', navigator.onLine ? 'En ligne' : 'Hors ligne', navigator.onLine ? 'ok' : 'warn');
-    // Écrit d'abord les modifications en attente (débounce 400 ms) : le compteur reflète ce qui est réellement sur l'appareil
-    if (_saveTimer) { clearTimeout(_saveTimer); _saveLocalNow(); }
-    const mine = x => !state.chantier || String((x && x.chantier) || '') === String(state.chantier);
-    let ptsAll = null, armsAll = [];
-    try { ptsAll = await DB.all('points'); } catch (e) {}
-    try { armsAll = await DB.all('armoires'); } catch (e) {}
-    const surAppareil = (n, tot) => n === tot ? String(n) : (n + ' · ' + tot + ' sur l\u2019appareil');
-    if (ptsAll) set('d-points', surAppareil(ptsAll.filter(mine).length, ptsAll.length)); else set('d-points', '—');
-    try {
-      const ids = new Set();
-      (ptsAll || []).filter(mine).forEach(p => ids.add(String(p.id)));
-      armsAll.filter(mine).forEach(a => ids.add(String(a.id)));
-      const keys = await DB.keys('photos');
-      let n = 0;
-      keys.forEach(k => { const s = String(k); const i = s.lastIndexOf('__'); if (i > 0 && ids.has(s.slice(0, i))) n++; });
-      set('d-photos', surAppareil(n, keys.length));
-    } catch (e) { set('d-photos', '—'); }
-    try {
-      const q = await DB.count('queue');
-      let pq = 0; try { pq = await DB.count('photoQueue'); } catch (e2) {}
-      const tot = q + pq;
-      set('d-queue', tot === 0 ? '0 ✓' : (String(tot) + (pq ? ' (dont ' + pq + ' photos)' : '')), tot === 0 ? 'ok' : 'warn');
-      const busy = isSyncing || isLoading || isUploadingPhotos;
-      if (busy) set('d-sync', 'En cours…', '');
-      else if (!navigator.onLine) set('d-sync', 'Hors ligne', 'warn');
-      else if (tot > 0) set('d-sync', 'En attente', 'warn');
-      else set('d-sync', 'À jour ✓', 'ok');
-    } catch (e) { set('d-queue', '—'); set('d-sync', '—'); }
-    set('d-photoerr', lastPhotoError || '—', lastPhotoError ? 'warn' : 'ok');
-    try { const c = await caches.open(TILE_CACHE_NAME); const k = await c.keys(); set('d-tiles', String(k.length)); } catch (e) { set('d-tiles', '—'); }
-    try {
-      if (navigator.storage && navigator.storage.estimate) {
-        const est = await navigator.storage.estimate();
-        set('d-storage', (est.usage / 1048576).toFixed(1) + ' / ' + (est.quota / 1048576).toFixed(0) + ' Mo');
-      } else set('d-storage', 'n/d');
-    } catch (e) { set('d-storage', '—'); }
-    try {
-      const persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : false;
-      set('d-persist', persisted ? 'Oui ✓' : 'Non garanti', persisted ? 'ok' : 'warn');
-    } catch (e) {}
-  } finally { _diagBusy = false; }
+    const q = await DB.count('queue');
+    let pq = 0; try { pq = await DB.count('photoQueue'); } catch (e2) {}
+    const tot = q + pq;
+    set('d-queue', tot === 0 ? '0 ✓' : (String(tot) + (pq ? ' (dont ' + pq + ' photos)' : '')), tot === 0 ? 'ok' : 'warn');
+  } catch (e) {}
+  set('d-photoerr', lastPhotoError || '—', lastPhotoError ? 'warn' : 'ok');
+  try { const c = await caches.open('audit-ep-tiles-v1'); const k = await c.keys(); set('d-tiles', String(k.length)); } catch (e) { set('d-tiles', '—'); }
+  try {
+    if (navigator.storage && navigator.storage.estimate) {
+      const est = await navigator.storage.estimate();
+      set('d-storage', (est.usage / 1048576).toFixed(1) + ' / ' + (est.quota / 1048576).toFixed(0) + ' Mo');
+    } else set('d-storage', 'n/d');
+  } catch (e) { set('d-storage', '—'); }
+  try {
+    const persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : false;
+    set('d-persist', persisted ? 'Oui ✓' : 'Non garanti', persisted ? 'ok' : 'warn');
+  } catch (e) {}
 }
 
 /* ---- Pré-cache des tuiles de la zone visible (À FAIRE EN RÉSEAU, avant le terrain) ---- */
@@ -203,7 +167,6 @@ async function precacheVisibleArea() {
   if (ok === 0) showToast('Échec du préchargement — vérifiez le réseau', 'error');
   else if (ok < total) showToast('Carte préchargée : ' + ok + '/' + total + ' tuiles (réseau instable, relancez pour compléter)', 'success');
   else showToast('Carte préchargée ✓ (' + ok + ' tuiles) — dispo hors-ligne', 'success');
-  requestPersistence();
   refreshDiag();
 }
 
@@ -318,12 +281,6 @@ let state = {
 let currentGPSAccuracy = null;
 let currentSourcePosition = '';
 
-// ── PEEEPS : tout ce qui est affiché ou modifié en masse est limité au PEEEPS courant ──
-function inPeeeps(x) { return !state.chantier || String((x && x.chantier) || '') === String(state.chantier); }
-function peeepsPoints() { return state.points.filter(inPeeeps); }
-function peeepsArmoires() { return state.armoires.filter(inPeeeps); }
-function panierPoints() { return state.points.filter(p => p.dansPanier && inPeeeps(p)); }
-
 // ── ANNULER (Ctrl+Z) — pile des dernières actions modifiant/supprimant des points ──
 // Chaque entrée { id, before } où before = clone du point AVANT l'action (null si le
 // point n'existait pas avant, càd l'action l'a créé → annuler = le supprimer à nouveau).
@@ -331,78 +288,58 @@ function panierPoints() { return state.points.filter(p => p.dansPanier && inPeee
 const undoStack = [];
 const UNDO_MAX = 20;
 function cloneEntry(pt) { return pt ? JSON.parse(JSON.stringify(pt)) : null; }
-const redoStack = [];
 function pushUndo(label, entries) {
   undoStack.push({ label, entries, ts: Date.now() });
   if (undoStack.length > UNDO_MAX) undoStack.shift();
-  redoStack.length = 0;            // une nouvelle action invalide les actions « à rétablir »
   updateUndoButton();
 }
-function clearHistory() { undoStack.length = 0; redoStack.length = 0; updateUndoButton(); }
 function updateUndoButton() {
-  const maj = (btnId, cntId, stack, vide, verbe) => {
-    const btn = document.getElementById(btnId), badge = document.getElementById(cntId);
-    if (!btn) return;
-    btn.disabled = stack.length === 0;
-    if (stack.length) {
-      badge.textContent = stack.length;
-      badge.style.display = 'flex';
-      btn.title = verbe + ' : ' + stack[stack.length - 1].label;
-    } else {
-      badge.style.display = 'none';
-      btn.title = vide;
-    }
-  };
-  maj('undo-btn', 'undo-count', undoStack, 'Annuler la dernière action', 'Annuler');
-  maj('redo-btn', 'redo-count', redoStack, 'Rétablir l\u2019action annulée', 'Rétablir');
-}
-// Applique une liste { id, before } et renvoie la liste inverse (état juste avant l'application),
-// ce qui permet d'annuler ET de rétablir avec le même code.
-async function _applyHistory(entries) {
-  const inverse = [];
-  for (const entry of entries) {
-    const idx = state.points.findIndex(p => p.id === entry.id);
-    inverse.push({ id: entry.id, before: idx >= 0 ? cloneEntry(state.points[idx]) : null });
-    if (entry.before === null) {
-      // Le point n'existait pas avant cette action → on le retire à nouveau
-      if (idx >= 0) state.points.splice(idx, 1);
-      try { await DB.del('points', entry.id); } catch (e) {}
-      try { await DB.put('tombstones', { id: entry.id, ts: Date.now() }); } catch (e) {}
-      await sendDeleteToSheets('Points Lumineux', entry.id);
-    } else {
-      // Restaure l'état exact d'avant (coordonnées, champs modifiés, etc.)
-      if (idx >= 0) state.points[idx] = entry.before; else state.points.push(entry.before);
-      try { await DB.del('tombstones', entry.id); } catch (e) {} // au cas où c'était une suppression
-      await syncPointToSheets(entry.before);
-    }
+  const btn = document.getElementById('undo-btn');
+  const badge = document.getElementById('undo-count');
+  if (!btn) return;
+  btn.disabled = undoStack.length === 0;
+  if (undoStack.length) {
+    badge.textContent = undoStack.length;
+    badge.style.display = 'flex';
+    btn.title = 'Annuler : ' + undoStack[undoStack.length - 1].label;
+  } else {
+    badge.style.display = 'none';
+    btn.title = 'Annuler la dernière action';
   }
-  return inverse;
 }
-async function _runHistory(source, target, t) {
-  if (!source.length) { showToast(t.rien, ''); return; }
-  const action = source.pop();
+async function undoLast() {
+  if (!undoStack.length) { showToast('Rien à annuler', ''); return; }
+  const action = undoStack.pop();
   updateUndoButton();
-  const ub = document.getElementById('undo-btn'), rb = document.getElementById('redo-btn');
-  if (ub) ub.disabled = true;
-  if (rb) rb.disabled = true;
-  showToast(t.en_cours + ' : ' + action.label + '…', '');
+  const btn = document.getElementById('undo-btn');
+  btn.disabled = true;
+  showToast('Annulation : ' + action.label + '…', '');
   try {
-    const inverse = await _applyHistory(action.entries);
-    target.push({ label: action.label, entries: inverse, ts: Date.now() });
-    if (target.length > UNDO_MAX) target.shift();
+    for (const entry of action.entries) {
+      const idx = state.points.findIndex(p => p.id === entry.id);
+      if (entry.before === null) {
+        // Le point n'existait pas avant cette action → on le retire à nouveau
+        if (idx >= 0) state.points.splice(idx, 1);
+        try { await DB.del('points', entry.id); } catch (e) {}
+        try { await DB.put('tombstones', { id: entry.id, ts: Date.now() }); } catch (e) {}
+        await sendDeleteToSheets('Points Lumineux', entry.id);
+      } else {
+        // Restaure l'état exact d'avant (coordonnées, champs modifiés, etc.)
+        if (idx >= 0) state.points[idx] = entry.before; else state.points.push(entry.before);
+        try { await DB.del('tombstones', entry.id); } catch (e) {} // au cas où c'était une suppression
+        await syncPointToSheets(entry.before);
+      }
+    }
     saveLocal();
     refreshMapMarkers(); renderList(); renderPanier(); updateStatus();
-    showToast(t.fait + ' : ' + action.label + ' ✓', 'success');
+    showToast('Annulé : ' + action.label + ' ✓', 'success');
   } catch (e) {
-    console.error('historique', e);
-    source.push(action);   // l'action reste disponible (la ré-appliquer est sans danger)
-    showToast('⚠ Erreur : ' + t.verbe + ' impossible', 'error');
+    console.error('undo', e);
+    showToast('⚠ Erreur pendant l\'annulation', 'error');
   } finally {
     updateUndoButton();
   }
 }
-function undoLast() { return _runHistory(undoStack, redoStack, { rien: 'Rien à annuler', en_cours: 'Annulation', fait: 'Annulé', verbe: 'annulation' }); }
-function redoLast() { return _runHistory(redoStack, undoStack, { rien: 'Rien à rétablir', en_cours: 'Rétablissement', fait: 'Rétabli', verbe: 'rétablissement' }); }
 
 // ── OFFLINE ──
 function updateOfflineBanner() {
@@ -414,12 +351,6 @@ window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
     e.preventDefault();
     undoLast();
-  } else if ((e.ctrlKey || e.metaKey) && ((e.shiftKey && e.key.toLowerCase() === 'z') || (!e.shiftKey && e.key.toLowerCase() === 'y'))) {
-    // Rétablir : on laisse le comportement natif dans les champs de saisie
-    const t = e.target && e.target.tagName;
-    if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || (e.target && e.target.isContentEditable)) return;
-    e.preventDefault();
-    redoLast();
   }
 });
 
@@ -501,6 +432,8 @@ async function loadLocalArmoires() {
 // ── Chantiers dynamiques (liste partagée entre appareils via la Config) ──
 function backToLogin() {
   if (!confirm('Revenir à la page de connexion ?\n(Vos données restent enregistrées et synchronisées.)')) return;
+  if (typeof authLogout === 'function') authLogout();          // coupe la session (jeton effacé)
+  const lc = document.getElementById('login-code'); if (lc) lc.value = '';
   document.querySelectorAll('.screen').forEach(sc => sc.classList.remove('active'));
   const lg = document.getElementById('screen-login');
   lg.classList.add('active');
@@ -515,21 +448,21 @@ function populateChantierSelect(selected) {
     ? CONFIG.chantiers : CONFIG_DEFAULT.chantiers;
   sel.innerHTML = '<option value="">-- Sélectionner --</option>' +
     list.map(c => `<option${c === selected ? ' selected' : ''}>${escapeHtml(c)}</option>`).join('') +
-    '<option value="__new">＋ Nouveau PEEEPS…</option>';
+    '<option value="__new">＋ Nouveau chantier…</option>';
   if (selected) sel.value = selected;
 }
 async function deleteChantierFromLogin() {
   const sel = document.getElementById('login-chantier');
   const name = sel.value;
-  if (!name || name === '__new') { showToast('Sélectionnez d\u2019abord un PEEEPS', 'error'); return; }
-  if (!confirm('Retirer le PEEEPS « ' + name + ' » de la liste ?\n\nLes points et photos déjà dans le Sheet ne sont PAS supprimés — seul le PEEEPS disparaît de la liste de connexion.')) return;
+  if (!name || name === '__new') { showToast('Sélectionnez d\u2019abord un chantier', 'error'); return; }
+  if (!confirm('Retirer le chantier « ' + name + ' » de la liste ?\n\nLes points et photos déjà dans le Sheet ne sont PAS supprimés — seul le chantier disparaît de la liste de connexion.')) return;
   CONFIG.chantiers = (CONFIG.chantiers || CONFIG_DEFAULT.chantiers).filter(c => c !== name);
   await saveConfig();
   populateChantierSelect('');
-  showToast('PEEEPS « ' + name + ' » retiré de la liste', 'success');
+  showToast('Chantier « ' + name + ' » retiré de la liste', 'success');
 }
 async function addChantierFromLogin(sel) {
-  const name = (prompt('Nom du nouveau PEEEPS :') || '').trim();
+  const name = (prompt('Nom du nouveau chantier (commune) :') || '').trim();
   if (!name) { sel.value = ''; return; }
   if (!Array.isArray(CONFIG.chantiers)) CONFIG.chantiers = CONFIG_DEFAULT.chantiers.slice();
   if (!CONFIG.chantiers.includes(name)) {
@@ -538,7 +471,7 @@ async function addChantierFromLogin(sel) {
     await saveConfig();          // partagé avec les autres appareils via l'onglet Config
   }
   populateChantierSelect(name);
-  showToast('PEEEPS « ' + name + ' » créé — vous pouvez vous connecter', 'success');
+  showToast('Chantier « ' + name + ' » créé — vous pouvez vous connecter', 'success');
 }
 // Au démarrage : charge la config locale pour remplir la liste avant la connexion
 (async function preloadChantiers() {
@@ -555,11 +488,23 @@ async function doLogin() {
   const prenom = document.getElementById('login-prenom').value.trim();
   const nom = document.getElementById('login-nom').value.trim();
   const chantier = document.getElementById('login-chantier').value;
-  if (!prenom || !nom || !chantier) { showToast('Remplissez tous les champs', 'error'); return; }
-  const _prevCh = state.chantier;
-  state.technicien = prenom + ' ' + nom;
+  const code = (document.getElementById('login-code').value || '').trim();
+  if (!prenom || !nom || !chantier || !code) { showToast('Remplissez tous les champs', 'error'); return; }
+  // ── Code d'accès : vérifié par le serveur (ou, sans réseau, par l'empreinte gardée sur l'appareil) ──
+  const btnLogin = document.querySelector('#screen-login .btn-primary');
+  if (btnLogin) { btnLogin.disabled = true; btnLogin.textContent = 'Vérification…'; }
+  let auth;
+  try { auth = await authLogin(prenom, nom, code); }
+  finally { if (btnLogin) { btnLogin.disabled = false; btnLogin.textContent = 'Commencer l\'audit'; } }
+  if (!auth.ok) {
+    showToast(auth.msg || 'Connexion refusée', 'error');
+    document.getElementById('login-code').value = '';
+    return;
+  }
+  document.getElementById('login-code').value = '';
+  if (auth.mode === 'offline') showToast('Connexion hors-ligne — synchronisation au retour du réseau', '');
+  state.technicien = auth.nom || (prenom + ' ' + nom);   // nom tel qu'enregistré dans l'onglet Accès
   state.chantier = chantier;
-  if (_prevCh !== chantier) clearHistory();   // l'historique annuler/rétablir ne traverse pas les PEEEPS
   await loadLocal();
   await loadLocalArmoires();
   await loadConfig();
@@ -567,61 +512,9 @@ async function doLogin() {
   document.getElementById('map-chantier-label').textContent = chantier;
   document.getElementById('map-technicien-label').textContent = state.technicien;
   document.getElementById('bottom-nav').style.display = 'flex';
-  const _mapExisted = !!map;          // reconnexion (carte déjà créée) : il faut réappliquer le contexte du PEEEPS
   showScreen('map');
   initMap();
-  if (_mapExisted) refreshPeeepsContext(); else populateMapPeeepsSwitch();
   updateStatus();
-}
-
-// Liste déroulante de la barre de la carte : changer de PEEEPS sans repasser par la connexion
-function populateMapPeeepsSwitch() {
-  const sel = document.getElementById('map-peeeps-switch');
-  if (!sel) return;
-  const list = ((CONFIG && Array.isArray(CONFIG.chantiers) && CONFIG.chantiers.length) ? CONFIG.chantiers : CONFIG_DEFAULT.chantiers).slice();
-  if (state.chantier && !list.includes(state.chantier)) list.push(state.chantier);
-  sel.innerHTML = list.map(c => `<option${c === state.chantier ? ' selected' : ''}>${escapeHtml(c)}</option>`).join('');
-  if (state.chantier) sel.value = state.chantier;
-}
-// Tout ce qui est propre à un PEEEPS (filtres, plan client, modes de saisie, vue) est remis à neuf
-function refreshPeeepsContext() {
-  document.getElementById('map-chantier-label').textContent = state.chantier;
-  populateMapPeeepsSwitch();
-  if (poseMode) togglePose();
-  if (armoirePoseMode) toggleArmoirePose();
-  if (lassoMode) toggleLasso();
-  if (moveGroupMode) cancelMoveGroup();
-  state.filterArmoire = []; state.filterChamp = null; _champSel = new Set(); _filterSig = '';
-  const cb = document.getElementById('map-champ-btn'); if (cb) cb.textContent = 'Filtre caractéristique';
-  updateFilterBtn();
-  window._listLimit = 0;
-  if (map) {
-    map.closePopup();
-    removeOverlay(false);
-    restoreOverlay();
-    refreshMapMarkers();
-    const pts = peeepsPoints().filter(p => p.lat && p.lng).map(p => [p.lat, p.lng]);
-    peeepsArmoires().forEach(a => { if (a.lat && a.lng) pts.push([a.lat, a.lng]); });
-    if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 19 });
-  }
-  renderList(); renderPanier(); renderArmoires();
-  // nouveau chargement serveur pour ce PEEEPS (attend la fin d'un éventuel chargement en cours)
-  (function go(n) { if (isLoading && n < 20) { setTimeout(() => go(n + 1), 500); return; } loadFromSheets(); })(0);
-}
-async function switchPeeeps(name) {
-  const sel = document.getElementById('map-peeeps-switch');
-  if (!name || name === state.chantier) return;
-  const calib = document.getElementById('calib-screen');
-  if (calibWaitMap || (calib && calib.classList.contains('show'))) {
-    showToast('Terminez ou annulez le calage du plan avant de changer de PEEEPS', 'error');
-    if (sel) sel.value = state.chantier;
-    return;
-  }
-  if (_saveTimer) { clearTimeout(_saveTimer); _saveLocalNow(); }   // rien n'est perdu au changement
-  state.chantier = name;
-  clearHistory();
-  refreshPeeepsContext();
-  showToast('PEEEPS « ' + name + ' »', 'success');
 }
 
 // ── SCREENS ──
@@ -850,7 +743,7 @@ function finishLasso() {
   });
   saveLocal();
   refreshMapMarkers();
-  const nSel = panierPoints().length;
+  const nSel = state.points.filter(p => p.dansPanier).length;
   let msg = [];
   if (ajoutes) msg.push(ajoutes + ' ajouté(s)');
   if (retires) msg.push(retires + ' retiré(s)');
@@ -869,7 +762,7 @@ let moveGroupOriginal = [];     // [{ id, lat, lng }] snapshot des points sélec
 let moveGroupGhostLayer = null; // calque des marqueurs fantômes affichés pendant le glisser
 
 function startMoveGroup() {
-  const pts = panierPoints().filter(p => p.lat != null && p.lng != null);
+  const pts = state.points.filter(p => p.dansPanier && p.lat != null && p.lng != null);
   if (!pts.length) { showToast('Aucun point sélectionné', 'error'); return; }
   if (poseMode) togglePose();
   if (lassoMode) toggleLasso();
@@ -1027,7 +920,6 @@ async function startTileDownload() {
     txt.innerHTML = 'Hors-ligne : <b>' + (done + fail) + '</b> / ' + jobs.length + ' tuiles';
   }
   _dlRunning = false;
-  requestPersistence();
   banner.classList.remove('show');
   if (_dlCancel) showToast('Téléchargement interrompu — ' + done + ' tuiles conservées', '');
   else showToast('Zone téléchargée ✓ ' + done + ' tuiles' + (fail ? ' (' + fail + ' échecs)' : '') + ' — disponible hors-ligne', 'success');
@@ -1375,7 +1267,7 @@ function updateMapProgress() {
       if (state.chantier && String(p.chantier || '') !== String(state.chantier)) return;
       total++; if (p.verifie) faits++;
     });
-    titre = 'PEEEPS ' + (state.chantier || '');
+    titre = 'Chantier ' + (state.chantier || '');
   }
   if (!total) { box.classList.remove('show'); return; }
   const pct = Math.round(faits / total * 100);
@@ -1403,8 +1295,8 @@ function zoomToArmoireFilter() {
   const sel = _filterSet();
   if (!sel.size) return;
   const latlngs = [];
-  state.points.forEach(p => { if (inPeeeps(p) && sel.has(String(p.idArmoire)) && p.lat && p.lng) latlngs.push([p.lat, p.lng]); });
-  state.armoires.forEach(a => { if (inPeeeps(a) && sel.has(String(a.id)) && a.lat && a.lng) latlngs.push([a.lat, a.lng]); });
+  state.points.forEach(p => { if (sel.has(String(p.idArmoire)) && p.lat && p.lng) latlngs.push([p.lat, p.lng]); });
+  state.armoires.forEach(a => { if (sel.has(String(a.id)) && a.lat && a.lng) latlngs.push([a.lat, a.lng]); });
   if (latlngs.length === 1) map.setView(latlngs[0], 18);
   else if (latlngs.length > 1) map.fitBounds(latlngs, { padding: [50, 50], maxZoom: 19 });
 }
@@ -1494,10 +1386,10 @@ function refreshMapMarkers() {
   });
   const _fs = _filterSet();
   const shown = _fs.size
-    ? state.points.filter(p => inPeeeps(p) && _fs.has(String(p.idArmoire)) && p.lat && p.lng).length
-    : peeepsPoints().length;
+    ? state.points.filter(p => _fs.has(String(p.idArmoire)) && p.lat && p.lng).length
+    : state.points.length;
   const ptsLabel = _fs.size ? (shown + ' pts (filtré)') : (shown + ' pts');
-  const armLabel = peeepsArmoires().length + ' arm.';
+  const armLabel = state.armoires.length + ' arm.';
   document.getElementById('map-count-badge').textContent = ptsLabel + ' · ' + armLabel;
 }
 
@@ -1995,8 +1887,7 @@ function renderArmoires() {
   const filterEl = document.getElementById('arm-filter-etat');
   const q = searchEl ? searchNorm(searchEl.value.trim()) : '';
   const etatFilter = filterEl ? filterEl.value : '';
-  const baseArm = peeepsArmoires();
-  let source = baseArm;
+  let source = state.armoires;
   if (etatFilter) source = source.filter(a => a.etatExt === etatFilter);
   if (q) {
     source = source.filter(a => {
@@ -2004,7 +1895,7 @@ function renderArmoires() {
       return hay.includes(q);
     });
   }
-  sub.textContent = (q || etatFilter ? source.length + ' / ' + baseArm.length : baseArm.length) + ' armoire' + (baseArm.length > 1 ? 's' : '');
+  sub.textContent = (q || etatFilter ? source.length + ' / ' + state.armoires.length : state.armoires.length) + ' armoire' + (state.armoires.length > 1 ? 's' : '');
   if (!source.length) {
     scroll.innerHTML = (q || etatFilter)
       ? `<div class="search-empty-hint">Aucune armoire ne correspond${q ? ' à « ' + escapeHtml(searchEl.value.trim()) + ' »' : ''}${etatFilter ? ' (état : ' + escapeHtml(etatFilter) + ')' : ''}</div>`
@@ -2012,7 +1903,7 @@ function renderArmoires() {
     return;
   }
   scroll.innerHTML = source.map(arm => {
-    const nbPts = state.points.filter(p => inPeeeps(p) && String(p.idArmoire || '').trim() === String(arm.id).trim()).length;
+    const nbPts = state.points.filter(p => String(p.idArmoire || '').trim() === String(arm.id).trim()).length;
     const etatColor = arm.etatExt === 'Bon' ? '#4ade80' : arm.etatExt === 'Moyen' ? '#facc15' : arm.etatExt ? '#f87171' : '#64748b';
     return `<div class="armoire-card">
       <div class="armoire-item" onclick="showArmoireForm(state.armoires.find(a=>a.id==='${arm.id}'))">
@@ -2209,18 +2100,17 @@ function renderList() {
   const scroll = document.getElementById('list-scroll');
   const searchEl = document.getElementById('list-search');
   const q = searchEl ? searchNorm(searchEl.value.trim()) : '';
-  const base = peeepsPoints();
   const source = q
-    ? base.filter(pt => {
+    ? state.points.filter(pt => {
         const hay = searchNorm([pt.id, pt.typeSupport, pt.technologie, pt.etatSupport, pt.puissance, pt.typeLuminaire, pt.idArmoire, pt.hauteur].join(' '));
         return hay.includes(q);
       })
-    : base;
-  document.getElementById('list-sub').textContent = (q ? source.length + ' / ' + base.length : base.length) + ' points · ' + state.chantier;
+    : state.points;
+  document.getElementById('list-sub').textContent = (q ? source.length + ' / ' + state.points.length : state.points.length) + ' points · ' + state.chantier;
   if (!source.length) {
     scroll.innerHTML = q
       ? `<div class="search-empty-hint">Aucun point ne correspond à « ${escapeHtml(searchEl.value.trim())} »</div>`
-      : `<div class="empty-state"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#94a3b8" stroke-width="1.5"><circle cx="24" cy="24" r="20"/><path d="M24 14v10l6 6"/></svg></div><div class="empty-text">Aucun point relevé<br>sur ce PEEEPS</div></div>`;
+      : `<div class="empty-state"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#94a3b8" stroke-width="1.5"><circle cx="24" cy="24" r="20"/><path d="M24 14v10l6 6"/></svg></div><div class="empty-text">Aucun point relevé<br>sur ce chantier</div></div>`;
     return;
   }
   const LIST_PAGE = 300;
@@ -2243,7 +2133,7 @@ function renderList() {
 
 // ── PANIER ──
 function renderPanier() {
-  const pts = panierPoints();
+  const pts = state.points.filter(p => p.dansPanier);
   document.getElementById('panier-sub').textContent = pts.length + ' point' + (pts.length>1?'s':'') + ' sélectionné' + (pts.length>1?'s':'');
   document.getElementById('masse-count').textContent = pts.length;
   const scroll = document.getElementById('panier-scroll');
@@ -2270,7 +2160,7 @@ function retirerDuPanier(id) {
 }
 
 function viderPanier() {
-  panierPoints().forEach(p => p.dansPanier = false);
+  state.points.forEach(p => p.dansPanier = false);
   saveLocal(); renderPanier(); refreshMapMarkers();
   showToast('Panier vidé');
 }
@@ -2417,7 +2307,6 @@ function applyConfig() {
   applyFieldOrder();
   // 6) bandeau des trames de la fiche point
   renderTemplatesBar();
-  populateMapPeeepsSwitch();   // la liste des PEEEPS peut venir d'une synchro des réglages
 }
 // Rend les champs personnalisés dans le formulaire point lumineux
 function renderCustomFields() {
@@ -2534,8 +2423,8 @@ function populateIdArmoireSelect(cur) {
   const sel = document.getElementById('f-id-armoire');
   if (!sel) return;
   const ids = new Set();
-  state.armoires.forEach(a => { if (a.id && inPeeeps(a)) ids.add(String(a.id)); });
-  state.points.forEach(p => { if (p.idArmoire && inPeeeps(p)) ids.add(String(p.idArmoire)); });
+  state.armoires.forEach(a => { if (a.id) ids.add(String(a.id)); });
+  state.points.forEach(p => { if (p.idArmoire) ids.add(String(p.idArmoire)); });
   if (cur) ids.add(String(cur));
   const sorted = [...ids].sort();
   sel.innerHTML = '<option value="">-- Aucune --</option>' +
@@ -3452,7 +3341,7 @@ function renderSettings() {
     </div>
   </div>`;
 
-  html += '<div class="set-section-title">Importer des points (PEEEPS : ' + escapeHtml(state.chantier || '?') + ')</div>';
+  html += '<div class="set-section-title">Importer des points (chantier : ' + escapeHtml(state.chantier || '?') + ')</div>';
   html += `<div class="set-card">
     <div class="set-empty" style="margin-bottom:8px">Collez les points du SIG : une ligne par point, <b>ID ; X ; Y</b> (séparateur ; , ou tabulation). Les coordonnées Lambert-93 et Coniques Conformes (CC42-CC50) sont converties automatiquement en GPS.</div>
     <textarea class="set-input" id="imp-text" rows="6" placeholder="0100-0115;1500893.9;3222888.3&#10;0100-0116;1500901.2;3222901.7&#10;…" style="font-family:monospace;font-size:12px;margin-bottom:8px"></textarea>
@@ -3617,7 +3506,7 @@ async function checkOfflineReady() {
 
   box.innerHTML =
     ligne(shell, 'Application installée hors-ligne', shell ? 'prête' : 'ouvrez en wifi') +
-    ligne(pts > 0, 'Points du PEEEPS', pts + ' pts') +
+    ligne(pts > 0, 'Points du chantier', pts + ' pts') +
     ligne(arms > 0, 'Armoires', arms + ' arm.') +
     ligne(trames > 0, 'Trames (catégories)', trames + ' trames') +
     ligne(tuiles > 50, 'Fond de carte', tuiles + ' tuiles' + (tuiles <= 50 ? ' — à précharger' : '')) +
@@ -3816,7 +3705,7 @@ document.getElementById('masse-field').addEventListener('change', function() {
 });
 
 function openModalMasseChoice() {
-  const pts = panierPoints();
+  const pts = state.points.filter(p => p.dansPanier);
   if (!pts.length) { showToast('Aucun point sélectionné', 'error'); return; }
   document.getElementById('masse-choice-count').textContent = pts.length;
   document.getElementById('modal-masse-choice').classList.add('open');
@@ -3828,13 +3717,13 @@ function closeModalMasseChoice(e) {
 
 // Marque (ou retire) « vérifié sur le terrain » pour tous les points sélectionnés au lasso.
 async function masseSetVerifie(val) {
-  const cibles = panierPoints();
+  const cibles = state.points.filter(p => p.dansPanier);
   if (!cibles.length) { showToast('Aucun point sélectionné', 'error'); return; }
   const entries = cibles.map(p => ({ id: p.id, before: cloneEntry(p) }));
   // 1) marquage LOCAL instantané
   cibles.forEach(p => { p.verifie = val; });
   saveLocal();
-  pushUndo((val ? 'Vérification' : 'Retrait de vérification') + ' (' + cibles.length + ' pts)', entries);
+  pushUndo({ type: 'masse', entries });
   refreshMapMarkers();               // la barre de progression se met à jour tout de suite
   if (currentScreen === 'armoires') renderArmoires();
 
@@ -3865,8 +3754,8 @@ async function masseSetVerifie(val) {
 
 // Retire tous les points du lasso (désélectionne) sans les supprimer
 function deselectLasso() {
-  const count = panierPoints().length;
-  panierPoints().forEach(p => p.dansPanier = false);
+  const count = state.points.filter(p => p.dansPanier).length;
+  state.points.forEach(p => p.dansPanier = false);
   saveLocal();
   refreshMapMarkers();
   showToast(count + ' point' + (count > 1 ? 's' : '') + ' désélectionné' + (count > 1 ? 's' : ''), '');
@@ -3874,7 +3763,7 @@ function deselectLasso() {
 
 // Demande confirmation avant suppression groupée
 function confirmDeleteLasso() {
-  const pts = panierPoints();
+  const pts = state.points.filter(p => p.dansPanier);
   if (!pts.length) return;
   document.getElementById('modal-masse-choice').classList.remove('open');
   if (!confirm('Supprimer définitivement ' + pts.length + ' point' + (pts.length > 1 ? 's' : '') + ' sélectionné' + (pts.length > 1 ? 's' : '') + ' ?\nCette action est irréversible.')) return;
@@ -3910,7 +3799,7 @@ function _resolveOption(fid, v){
 async function applyTemplateToSelection(i) {
   const t = getAllTemplates()[i];
   if (!t) return;
-  const targets = panierPoints();
+  const targets = state.points.filter(p => p.dansPanier);
   if (!targets.length) { showToast('Aucun point sélectionné', 'error'); return; }
   targets.forEach(p => {
     Object.entries(t.values || {}).forEach(([fid, v]) => {
@@ -3936,7 +3825,7 @@ function openModalMasseTrames() {
   if (bar) { renderMasseTplBar(); bar.style.display = 'flex'; }
 }
 function openModalMasse() {
-  const pts = panierPoints();
+  const pts = state.points.filter(p => p.dansPanier);
   if (!pts.length) { showToast('Aucun point sélectionné', 'error'); return; }
   document.getElementById('masse-count').textContent = pts.length;
   renderMasseFieldSelect();
@@ -3959,7 +3848,7 @@ async function applyMasse() {
   const value = (def.options && def.options.length)
     ? document.getElementById('masse-value').value
     : document.getElementById('masse-text').value.trim();
-  const targets = panierPoints();
+  const targets = state.points.filter(p => p.dansPanier);
   if (!targets.length) { showToast('Aucun point sélectionné', 'error'); return; }
   const entries = targets.map(p => ({ id: p.id, before: cloneEntry(p) }));
   targets.forEach(p => {
@@ -3990,7 +3879,7 @@ const masseAllFields = [
   ['ma-observations', 'observations', 'text'],
 ];
 function openModalMasseAll() {
-  const pts = panierPoints();
+  const pts = state.points.filter(p => p.dansPanier);
   if (!pts.length) { showToast('Aucun point sélectionné', 'error'); return; }
   document.getElementById('masse-all-count').textContent = pts.length;
   document.getElementById('masse-all-count2').textContent = pts.length;
@@ -4002,7 +3891,7 @@ function closeModalMasseAll(e) {
     document.getElementById('modal-masse-all').classList.remove('open');
 }
 async function applyMasseAll() {
-  const targets = panierPoints();
+  const targets = state.points.filter(p => p.dansPanier);
   if (!targets.length) { showToast('Aucun point sélectionné', 'error'); return; }
   const patch = {};
   masseAllFields.forEach(([id, key]) => {
@@ -4076,9 +3965,8 @@ function armSig(a) {
 }
 async function loadArmoiresFromSheets(silent) {
   if (!navigator.onLine) return;
-  const _ch = state.chantier;
   try {
-    const url = SCRIPT_URL + '?sheet=Armoires&chantier=' + encodeURIComponent(_ch);
+    const url = SCRIPT_URL + '?sheet=Armoires&chantier=' + encodeURIComponent(state.chantier);
     const res = await fetch(url);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
@@ -4092,7 +3980,6 @@ async function loadArmoiresFromSheets(silent) {
       });
     } catch (e) {}
     try { tomb = new Set((await DB.all('tombstones')).map(t => String(t.id))); } catch (e) {}
-    if (state.chantier !== _ch) return;   // PEEEPS changé pendant le chargement : réponse abandonnée
     let changed = 0;
     const serverIds = new Set();
     (data.rows || []).forEach(r => {
@@ -4111,7 +3998,7 @@ async function loadArmoiresFromSheets(silent) {
     // Réconciliation descendante : armoire supprimée du Sheet → retirée localement
     for (const a of [...byId.values()]) {
       const id = String(a.id);
-      if (String(a.chantier) === String(_ch) && !serverIds.has(id) && !pendingArm.has(id) && !pendingDel.has(id)) {
+      if (String(a.chantier) === String(state.chantier) && !serverIds.has(id) && !pendingArm.has(id) && !pendingDel.has(id)) {
         byId.delete(id);
         changed++;
       }
@@ -4289,7 +4176,6 @@ async function manualSync() {
 async function loadFromSheets(silent) {
   if (isLoading) return;                 // évite les chargements qui se chevauchent
   isLoading = true;
-  const _ch = state.chantier;            // PEEEPS pour lequel on charge (peut changer pendant l'attente réseau)
   try {
     if (!silent) {                       // au polling silencieux, la mémoire est déjà la source de vérité
       await loadLocal();                 // points locaux d'abord = source de vérité hors-ligne
@@ -4301,7 +4187,7 @@ async function loadFromSheets(silent) {
       // Les trames doivent être connues AVANT de lire les points : la colonne « Catégorie »
       // du Sheet a besoin de la trame correspondante pour compléter la fiche.
       if (!SHEET_TEMPLATES.length) { try { await loadTemplatesFromSheets(true); } catch (e) {} }
-      const url = SCRIPT_URL + '?sheet=Points%20Lumineux&chantier=' + encodeURIComponent(_ch);
+      const url = SCRIPT_URL + '?sheet=Points%20Lumineux&chantier=' + encodeURIComponent(state.chantier);
       const res = await fetch(url);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -4311,7 +4197,6 @@ async function loadFromSheets(silent) {
       try { tombstones = new Set((await DB.all('tombstones')).map(t => t.id)); } catch (e) {}
       let pendingIds = new Set();
       try { pendingIds = new Set((await DB.all('queue')).map(q => String(q.id))); } catch (e) {}
-      if (state.chantier !== _ch) return;   // PEEEPS changé pendant le chargement : réponse abandonnée
 
       // 1) Ajouts : points du serveur absents en local (hors supprimés/tombstones)
       let added = 0;
@@ -4348,7 +4233,7 @@ async function loadFromSheets(silent) {
       let removed = 0;
       for (const p of [...byId.values()]) {
         const pid = String(p.id);
-        if (String(p.chantier) === String(_ch) && !serverIds.has(pid) && !pendingIds.has(pid)) {
+        if (String(p.chantier) === String(state.chantier) && !serverIds.has(pid) && !pendingIds.has(pid)) {
           byId.delete(pid);
           try { await DB.del('points', p.id); } catch (e) {}
           removed++;
@@ -4481,20 +4366,12 @@ async function refreshTilesInfo(){
   } catch (e) {}
 }
 async function clearTileCache() {
-  // Sécurités : jamais pendant un téléchargement, jamais hors-ligne (les cartes seraient irrécupérables)
-  const pc = document.getElementById('cache-progress');
-  if (_dlRunning || (pc && pc.classList.contains('show'))) { showToast('Un téléchargement de carte est en cours — attendez la fin ou annulez-le', 'error'); return; }
-  if (!navigator.onLine) { showToast('Hors ligne : vider les cartes les rendrait irrécupérables. Reconnectez-vous d\u2019abord.', 'error'); return; }
-  let n = 0;
-  try { n = (await (await caches.open(TILE_CACHE_NAME)).keys()).length; } catch (e) {}
-  if (!n) { showToast('Aucune carte téléchargée à vider', ''); return; }
-  if (!confirm('Vider les ' + n + ' tuiles de carte téléchargées ?\n\nCela libère de l\u2019espace. Vos points, photos et réglages ne sont PAS touchés.\nIl faudra re-précharger les zones pour les revoir hors ligne.')) return;
+  if (!confirm('Vider les cartes téléchargées ?\n\nCela libère de l\u2019espace. Vos points, photos et réglages ne sont PAS touchés.\nIl faudra re-précharger les zones pour les revoir hors ligne.')) return;
   try {
-    await caches.delete(TILE_CACHE_NAME);   // uniquement le cache des tuiles (jamais celui de l'application)
+    await caches.delete('audit-ep-tiles-v1');
+    const el = document.getElementById('d-tiles'); if (el) el.textContent = '0';
     showToast('Cartes téléchargées vidées ✓', 'success');
   } catch (e) { showToast('Impossible de vider le cache', 'error'); }
-  refreshTilesInfo();
-  refreshDiag();
 }
 
 // ── VIDER la file d'attente hors-ligne ──
@@ -4507,7 +4384,7 @@ const ARM_PHOTO_COLS = { arm_ext: 'Photos Extérieur', arm_int: 'Photos Intérie
 
 async function enqueuePhoto(ownerId, type, sheet, column, armoire) {
   try {
-    await DB.put('photoQueue', { key: ownerId + '__' + type, ownerId, type, sheet, column, armoire: armoire || '', chantier: state.chantier || '', ts: Date.now() });
+    await DB.put('photoQueue', { key: ownerId + '__' + type, ownerId, type, sheet, column, armoire: armoire || '', ts: Date.now() });
   } catch (e) { console.error('enqueuePhoto', e); }
 }
 function blobToBase64(blob) {
@@ -4548,7 +4425,7 @@ async function uploadPendingPhotos() {
             armoire: it.armoire || '',
             filename: it.ownerId + '__' + it.type + '.jpg',
             mime: 'image/jpeg',
-            chantier: it.chantier || state.chantier || '',
+            chantier: state.chantier || '',
             data: b64
           })
         });
@@ -4567,7 +4444,7 @@ async function uploadPendingPhotos() {
       // Fait remonter la raison exacte du blocage à l'écran (diagnostic terrain)
       showToast('Photo refusée : ' + String(firstErr.message || firstErr).slice(0, 90), 'error');
     }
-  } finally { isUploadingPhotos = false; updateStatus(); }
+  } finally { isUploadingPhotos = false; }
 }
 
 // ── Suppression côté serveur (avec file hors-ligne) ──
