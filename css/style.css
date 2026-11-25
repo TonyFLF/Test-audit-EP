@@ -731,3 +731,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .map-ctrl-btn.tracking{background:#2f7bff}
 .map-ctrl-btn.tracking svg{stroke:#fff}
 .map-ctrl-btn.tracking svg circle[fill]{fill:#fff}
+
+/* ── SESSION EXPIRÉE (redemande du code) ── */
+.reauth{position:fixed;inset:0;z-index:4000;background:rgba(2,6,23,.75);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;padding:20px}
+.reauth.open{display:flex}
+.reauth-card{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius);padding:22px 20px;width:100%;max-width:360px}
+.reauth-msg{font-size:13px;color:var(--text2);line-height:1.45;margin-bottom:14px}
+.reauth-err{min-height:18px;font-size:12px;color:var(--red);margin:8px 0 2px}
+.reauth-card .btn-cancel{width:100%;margin-top:8px}
