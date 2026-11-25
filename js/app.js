@@ -432,6 +432,8 @@ async function loadLocalArmoires() {
 // ── Chantiers dynamiques (liste partagée entre appareils via la Config) ──
 function backToLogin() {
   if (!confirm('Revenir à la page de connexion ?\n(Vos données restent enregistrées et synchronisées.)')) return;
+  if (typeof authLogout === 'function') authLogout();          // coupe la session (jeton effacé)
+  const lc = document.getElementById('login-code'); if (lc) lc.value = '';
   document.querySelectorAll('.screen').forEach(sc => sc.classList.remove('active'));
   const lg = document.getElementById('screen-login');
   lg.classList.add('active');
@@ -486,8 +488,22 @@ async function doLogin() {
   const prenom = document.getElementById('login-prenom').value.trim();
   const nom = document.getElementById('login-nom').value.trim();
   const chantier = document.getElementById('login-chantier').value;
-  if (!prenom || !nom || !chantier) { showToast('Remplissez tous les champs', 'error'); return; }
-  state.technicien = prenom + ' ' + nom;
+  const code = (document.getElementById('login-code').value || '').trim();
+  if (!prenom || !nom || !chantier || !code) { showToast('Remplissez tous les champs', 'error'); return; }
+  // ── Code d'accès : vérifié par le serveur (ou, sans réseau, par l'empreinte gardée sur l'appareil) ──
+  const btnLogin = document.querySelector('#screen-login .btn-primary');
+  if (btnLogin) { btnLogin.disabled = true; btnLogin.textContent = 'Vérification…'; }
+  let auth;
+  try { auth = await authLogin(prenom, nom, code); }
+  finally { if (btnLogin) { btnLogin.disabled = false; btnLogin.textContent = 'Commencer l\'audit'; } }
+  if (!auth.ok) {
+    showToast(auth.msg || 'Connexion refusée', 'error');
+    document.getElementById('login-code').value = '';
+    return;
+  }
+  document.getElementById('login-code').value = '';
+  if (auth.mode === 'offline') showToast('Connexion hors-ligne — synchronisation au retour du réseau', '');
+  state.technicien = auth.nom || (prenom + ' ' + nom);   // nom tel qu'enregistré dans l'onglet Accès
   state.chantier = chantier;
   await loadLocal();
   await loadLocalArmoires();
