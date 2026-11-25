@@ -3913,7 +3913,7 @@ async function applyMasseAll() {
 updateOfflineBanner();
 
 // ── GOOGLE APPS SCRIPT CONFIG ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbww2iZN21IM53ikvY1QigN9qewDYodvd3GsgGEHGBHjq34GexDIUIneUvHhNjYucCc8/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw1o-afCNOQudADiWzkFZGe7ztfK6w4hIuHnyiEkj5DvXE2wXaqtEfieiNs2QYXLf4W/exec';
 
 let syncQueue = [];
 let isSyncing = false;
