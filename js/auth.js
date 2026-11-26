@@ -164,7 +164,7 @@
     }[code] || 'Connexion au serveur requise.';
     if (msg) msg.textContent = txt + ' Saisissez votre code pour synchroniser. Vos données restent enregistrées sur l’appareil.';
     el.classList.add('open');
-    var inp = document.getElementById('reauth-code'); if (inp) { inp.value = ''; setTimeout(function () { inp.focus(); }, 50); }
+    var inp = document.getElementById('reauth-code'); if (inp) inp.value = '';
   }
   function hideReauth() { var el = document.getElementById('reauth'); if (el) el.classList.remove('open'); }
 
@@ -176,7 +176,7 @@
     if (btn) { btn.disabled = true; btn.textContent = 'Vérification…'; }
     try {
       var r = await authLogin(AUTH.nom, '', inp ? inp.value : '');
-      if (!r.ok) { if (err) err.textContent = r.msg; if (inp) { inp.value = ''; inp.focus(); } return; }
+      if (!r.ok) { if (err) err.textContent = r.msg; if (inp) inp.value = ''; return; }
       if (r.mode === 'offline') { if (err) err.textContent = 'Réseau indisponible — réessayez plus tard'; return; }
       hideReauth();
       if (typeof showToast === 'function') showToast('Session rétablie ✓', 'success');
@@ -187,6 +187,90 @@
     }
   }
   function reauthLater() { AUTH.snoozeUntil = Date.now() + 5 * 60 * 1000; hideReauth(); }
+
+  /* ---------- pavé numérique à l'écran ----------
+     Chaque <div class="pinpad" data-input="ID" data-submit="login|reauth"> reçoit 4 pastilles
+     + un clavier 0-9. Le champ caché ID garde le code (donc doLogin() n'a rien à changer).
+     Au 4e chiffre, la validation part toute seule (connexion : si prénom, nom et chantier sont remplis).
+     Au clavier d'un ordinateur : chiffres, Retour arrière et Entrée fonctionnent aussi. */
+  function submitFor(kind) {
+    function v(id) { var e = document.getElementById(id); return e && String(e.value || '').trim(); }
+    if (kind === 'login') {
+      if (v('login-prenom') && v('login-nom') && v('login-chantier') && v('login-chantier') !== '__new' && typeof doLogin === 'function') return doLogin();
+    } else if (kind === 'reauth') {
+      return reauthSubmit();
+    }
+  }
+
+  function buildPad(pad) {
+    var input = document.getElementById(pad.getAttribute('data-input'));
+    var kind = pad.getAttribute('data-submit') || '';
+    if (!input || pad._built) return;
+    pad._built = true;
+    var val = '', busy = false;
+
+    var dots = document.createElement('div'); dots.className = 'pin-dots';
+    var dotEls = [];
+    for (var i = 0; i < 4; i++) { var d = document.createElement('span'); d.className = 'pin-dot'; dots.appendChild(d); dotEls.push(d); }
+    var grid = document.createElement('div'); grid.className = 'pin-grid';
+
+    function render() { for (var i = 0; i < 4; i++) dotEls[i].classList.toggle('on', i < val.length); }
+    // Le champ caché se comporte comme un champ normal : lire/écrire .value met les pastilles à jour.
+    Object.defineProperty(input, 'value', {
+      configurable: true,
+      get: function () { return val; },
+      set: function (x) { val = String(x == null ? '' : x).replace(/\D/g, '').slice(0, 4); render(); }
+    });
+
+    function submit() {
+      if (busy || val.length !== 4) return;
+      busy = true;
+      var p; try { p = submitFor(kind); } catch (e) { console.error(e); }
+      Promise.resolve(p).then(function () { busy = false; }, function () { busy = false; });
+    }
+    function add(dg) { if (val.length >= 4) return; val += dg; render(); if (val.length === 4) setTimeout(submit, 180); }
+    function back() { val = val.slice(0, -1); render(); }
+    pad._add = add; pad._back = back; pad._submit = submit;
+
+    function key(label, cls, fn, aria) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'pin-key' + (cls ? ' ' + cls : ''); b.textContent = label;
+      if (aria) b.setAttribute('aria-label', aria);
+      if (fn) b.addEventListener('click', fn); else b.disabled = true;
+      grid.appendChild(b); return b;
+    }
+    [1, 2, 3, 4, 5, 6, 7, 8, 9].forEach(function (n) { key(String(n), '', function () { add(String(n)); }); });
+    key('', 'ghost', null);
+    key('0', '', function () { add('0'); });
+    key('⌫', 'del', back, 'Effacer');
+
+    pad.setAttribute('tabindex', '0'); pad.setAttribute('role', 'group'); pad.setAttribute('aria-label', 'Pavé numérique du code d’accès');
+    pad.appendChild(dots); pad.appendChild(grid);
+    render();
+  }
+
+  function visiblePad() {
+    var pads = document.querySelectorAll('.pinpad');
+    for (var i = 0; i < pads.length; i++) if (pads[i]._add && pads[i].getClientRects().length) return pads[i];
+    return null;
+  }
+  function onKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var t = e.target && e.target.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT') return;    // on est en train de taper ailleurs
+    var pad = visiblePad(); if (!pad) return;
+    if (/^[0-9]$/.test(e.key)) { pad._add(e.key); e.preventDefault(); }
+    else if (e.key === 'Backspace') { pad._back(); e.preventDefault(); }
+    else if (e.key === 'Enter') { pad._submit(); e.preventDefault(); }
+  }
+  function initPinPads() {
+    try {
+      if (!document.querySelectorAll) return;
+      Array.prototype.forEach.call(document.querySelectorAll('.pinpad'), buildPad);
+      document.addEventListener('keydown', onKey);
+    } catch (e) { console.warn('pinpad', e); }
+  }
+  initPinPads();
 
   window.authLogin = authLogin;
   window.authLogout = authLogout;
