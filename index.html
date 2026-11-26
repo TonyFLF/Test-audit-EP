@@ -112,7 +112,8 @@
     </div>
     <div class="field-group">
       <label class="field-label">Code d'accès</label>
-      <input class="field-input" id="login-code" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="4 chiffres" style="letter-spacing:.4em;text-align:center" onkeydown="if(event.key==='Enter')doLogin()">
+      <input type="hidden" id="login-code">
+      <div class="pinpad" data-input="login-code" data-submit="login"></div>
     </div>
     <button class="btn-primary" onclick="doLogin()">Commencer l'audit</button>
   </div>
@@ -817,7 +818,8 @@
   <div class="reauth-card">
     <div class="modal-title">Connexion requise</div>
     <div class="reauth-msg" id="reauth-msg"></div>
-    <input class="field-input" id="reauth-code" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="Code à 4 chiffres" style="letter-spacing:.4em;text-align:center" onkeydown="if(event.key==='Enter')reauthSubmit()">
+    <input type="hidden" id="reauth-code">
+    <div class="pinpad" data-input="reauth-code" data-submit="reauth"></div>
     <div class="reauth-err" id="reauth-err"></div>
     <button class="btn-primary" id="reauth-go" onclick="reauthSubmit()">Valider</button>
     <button class="btn-cancel" onclick="reauthLater()">Plus tard</button>
