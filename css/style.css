@@ -739,3 +739,19 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .reauth-msg{font-size:13px;color:var(--text2);line-height:1.45;margin-bottom:14px}
 .reauth-err{min-height:18px;font-size:12px;color:var(--red);margin:8px 0 2px}
 .reauth-card .btn-cancel{width:100%;margin-top:8px}
+
+/* ── PAVÉ NUMÉRIQUE (code d'accès) ── */
+.pinpad{outline:none;margin-top:6px}
+.pin-dots{display:flex;justify-content:center;gap:14px;margin:4px 0 14px}
+.pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--border2);transition:background .12s,border-color .12s}
+.pin-dot.on{background:var(--accent);border-color:var(--accent)}
+.pin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:280px;margin:0 auto 6px}
+.pin-key{height:52px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:var(--bg2);color:var(--text);font:600 20px var(--font-display);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none}
+.pin-key:active{background:var(--bg3)}
+.pin-key.del{font-size:18px;color:var(--text2)}
+.pin-key.ghost{background:transparent;border-color:transparent;pointer-events:none}
+@media (max-height:760px){.pin-key{height:44px;font-size:18px}.pin-dots{margin-bottom:10px}}
+/* l'écran de connexion défile si le pavé dépasse (petits téléphones), sinon reste centré */
+#screen-login{justify-content:flex-start;overflow-y:auto}
+#screen-login .login-logo{margin-top:auto}
+#screen-login .login-card{margin-bottom:auto}
